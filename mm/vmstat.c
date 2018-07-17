@@ -976,6 +976,7 @@ const char * const vmstat_text[] = {
 	"nr_written",
 	"nr_indirectly_reclaimable",
 	"nr_gpu_heap",
+	"nr_ion_heap",
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
