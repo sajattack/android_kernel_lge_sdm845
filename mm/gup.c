@@ -648,6 +648,8 @@ static long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 	if (!nr_pages)
 		return 0;
 
+	start = untagged_addr(start);
+
 	VM_BUG_ON(!!pages != !!(gup_flags & FOLL_GET));
 
 	/*
@@ -803,6 +805,8 @@ int fixup_user_fault(struct task_struct *tsk, struct mm_struct *mm,
 
 	if (unlocked)
 		fault_flags |= FAULT_FLAG_ALLOW_RETRY;
+
+	address = untagged_addr(address);
 
 retry:
 	vma = find_extend_vma(mm, address);
