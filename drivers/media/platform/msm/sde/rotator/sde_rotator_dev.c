@@ -3699,6 +3699,7 @@ static int sde_rotator_probe(struct platform_device *pdev)
 	if (lge_panel_notifier_register_client(&rot_dev->notifier))
 		SDEDEV_ERR(&pdev->dev, "fail register panel notifier block\n");
 #endif
+	device_enable_async_suspend(&pdev->dev);
 
 	SDEDEV_INFO(&pdev->dev, "SDE v4l2 rotator probe success\n");
 
