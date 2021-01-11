@@ -192,6 +192,7 @@ config LGE_USB_SUPPORT_LIST_HID
 	select HID_ACRUX_FF
 	select HID_APPLE
 	select HID_BELKIN
+	select HID_BETOP_FF
 	select HID_CHERRY
 	select HID_CHICONY
 	select HID_PRODIKEYS
