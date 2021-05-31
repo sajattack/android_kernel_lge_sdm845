@@ -50,14 +50,6 @@ $(warning LSE atomics not supported by binutils)
   endif
 endif
 
-ifeq ($(CONFIG_ARCH_SDM845), y)
-ifeq ($(cc-name),clang)
-KBUILD_CFLAGS   += -mcpu=cortex-a55+crypto -mtune=cortex-a55
-else ifeq ($(cc-name),gcc)
-KBUILD_CFLAGS   += -mcpu=cortex-a75.cortex-a55+crypto -mtune=cortex-a75.cortex-a55
-endif
-endif
-
 ifeq ($(CONFIG_COMPAT_VDSO), y)
   CROSS_COMPILE_ARM32 ?= $(CONFIG_CROSS_COMPILE_ARM32:"%"=%)
 
