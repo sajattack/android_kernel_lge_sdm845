@@ -204,7 +204,6 @@ static void sde_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_pp)
 		return;
 
-	SDE_ATRACE_BEGIN("pp_done_irq");
 
 	/* handle rare cases where the ctl_start_irq is not received */
 	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
@@ -238,7 +237,6 @@ static void sde_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
-	SDE_ATRACE_END("pp_done_irq");
 }
 
 static void sde_encoder_phys_cmd_autorefresh_done_irq(void *arg, int irq_idx)
@@ -273,7 +271,6 @@ static void sde_encoder_phys_cmd_pp_rd_ptr_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_pp)
 		return;
 
-	SDE_ATRACE_BEGIN("rd_ptr_irq");
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	/**
@@ -303,7 +300,6 @@ static void sde_encoder_phys_cmd_pp_rd_ptr_irq(void *arg, int irq_idx)
 
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
 	wake_up_all(&cmd_enc->pending_vblank_wq);
-	SDE_ATRACE_END("rd_ptr_irq");
 }
 
 static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
@@ -317,7 +313,6 @@ static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_ctl)
 		return;
 
-	SDE_ATRACE_BEGIN("ctl_start_irq");
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	ctl = phys_enc->hw_ctl;
@@ -360,7 +355,6 @@ static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
 
 	/* Signal any waiting ctl start interrupt */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
-	SDE_ATRACE_END("ctl_start_irq");
 }
 
 static void sde_encoder_phys_cmd_underrun_irq(void *arg, int irq_idx)
