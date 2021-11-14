@@ -32,9 +32,7 @@
 #include    <linux/fs.h>
 #include    <linux/string.h>
 
-#if defined(CONFIG_ARCH_SM8150)
 #include    <linux/pm_qos.h>
-#endif
 
 //#define     USE_CONTROL_EXTERNAL_LDO_FOR_DVDD // control a external LDO drained from PMIC
 //#ifdef USE_CONTROL_EXTERNAL_LDO_FOR_DVDD
@@ -105,9 +103,7 @@ struct es9218_reg {
 struct wakeup_source wl_sleep;
 struct wakeup_source wl_shutdown;
 
-#if defined(CONFIG_ARCH_SM8150)
 struct pm_qos_request req;
-#endif
 
 /*
  *  We only include the analogue supplies here; the digital supplies
@@ -1765,12 +1761,10 @@ static int __es9218_sabre_headphone_on(void)
         call_common_init_registers = 1;
 
         cancel_delayed_work_sync(&g_es9218_priv->sleep_work);
-#if defined(CONFIG_ARCH_SM8150)
         if(pm_qos_request_active(&req)) {
             pr_info("%s(): pm qos active state. so, remove pm qos request", __func__);
             pm_qos_remove_request(&req);
         }
-#endif
         // guanrantee engough time to check impedance of headphone before entering to hifi mode, which means
         // that es9218p_sabre_bypass2hifi() is invoked after some delay like 250ms.
         schedule_delayed_work(&g_es9218_priv->hifi_in_standby_work, msecs_to_jiffies(250));
@@ -2052,12 +2046,10 @@ static void es9218_sabre_sleep_work (struct work_struct *work)
     }
 
     es9218_is_amp_on = 0;
-#if defined(CONFIG_ARCH_SM8150)
     if(pm_qos_request_active(&req)) {
         pr_info("%s(): pm qos active state. so, remove pm qos request", __func__);
         pm_qos_remove_request(&req);
     }
-#endif
     mutex_unlock(&g_es9218_priv->power_lock);
     return;
 }
@@ -2843,12 +2835,10 @@ static int es9218_sabre_wcdon2bypass_put(struct snd_kcontrol *kcontrol,
     //  if ( es9218_power_state == ESS_PS_IDLE ) {
             pr_info("%s() : state = %s : WCD On State HiFi -> ByPass !!\n", __func__, power_state[es9218_power_state]);
             cancel_delayed_work_sync(&g_es9218_priv->sleep_work);
-#if defined(CONFIG_ARCH_SM8150)
             if(pm_qos_request_active(&req)) {
                 pr_info("%s(): pm qos active state. so, remove pm qos request", __func__);
                 pm_qos_remove_request(&req);
             }
-#endif
             es9218p_sabre_hifi2lpb();
         }  else {
             pr_info("%s() : Invalid state = %s !!\n", __func__, power_state[es9218_power_state]);
@@ -3352,12 +3342,10 @@ static int es9218_startup(struct snd_pcm_substream *substream,
     call_common_init_registers = 1;
 
     cancel_delayed_work_sync(&g_es9218_priv->sleep_work);
-#if defined(CONFIG_ARCH_SM8150)
     if(pm_qos_request_active(&req)) {
         pr_info("%s(): pm qos active state. so, remove pm qos request", __func__);
         pm_qos_remove_request(&req);
     }
-#endif
     if ( es9218_power_state == ESS_PS_IDLE ) {
         pr_info("%s() : state = %s : Audio Active !!\n", __func__, power_state[es9218_power_state]);
         // check if DoP64 <-> DoP128
@@ -3439,23 +3427,20 @@ static void es9218_shutdown(struct snd_pcm_substream *substream,
 
     es9218_sabre_audio_idle();
 
-#if defined(CONFIG_ARCH_SM8150)
     req.type = PM_QOS_REQ_AFFINE_CORES;
     req.irq = -1;
-    cpumask_copy(&req.cpus_affine, cpu_present_mask);
-#endif
+    atomic_set(&req.cpus_affine, *cpumask_bits(cpu_lp_mask));
 
 #ifdef ES9218P_DEBUG
 	__pm_wakeup_event(&wl_shutdown, jiffies_to_msecs(10));
     schedule_delayed_work(&g_es9218_priv->sleep_work, msecs_to_jiffies(10));      //  3 Sec
 #else
     __pm_wakeup_event(&wl_shutdown, jiffies_to_msecs(5000));
-#if defined(CONFIG_ARCH_SM8150)
     if(!pm_qos_request_active(&req)) {
         pr_info("%s(): pm qos nonactive state. so, pm_qos_add_request", __func__);
         pm_qos_add_request(&req, PM_QOS_CPU_DMA_LATENCY, 0);
     }
-#endif
+
 #ifdef CONFIG_MACH_SM6150_MH3_LAO_KR
     schedule_delayed_work(&g_es9218_priv->sleep_work, msecs_to_jiffies(3000));      //  3 Sec
 #else
