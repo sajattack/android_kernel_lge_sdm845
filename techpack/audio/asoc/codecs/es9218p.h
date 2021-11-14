@@ -16,10 +16,6 @@
 #ifndef __ES9218P_H__
 #define __ES9218P_H__
 
-#if defined(CONFIG_SND_SOC_ES9219)
-#define ES9219C
-#endif
-
 #define ES9218P_REG_00                      0
 #define ES9218P_REG_01                      1
 #define ES9218P_REG_02                      2
@@ -102,30 +98,7 @@
 #define ES9218P_REG_79                      79
 #define ES9218P_REG_80                      80
 
-#ifdef ES9219C
-#define ES9219C_REG_135                     135
-#define ES9219C_REG_136                     136
-#define ES9219C_REG_137                     137
-#define ES9219C_REG_138                     138
-#define ES9219C_REG_139                     139
-#define ES9219C_REG_140                     140
-#define ES9219C_REG_141                     141
-#define ES9219C_REG_142                     142
-#define ES9219C_REG_143                     143
-#define ES9219C_REG_144                     144
-#define ES9219C_REG_145                     145
-#define ES9219C_REG_146                     146
-#define ES9219C_REG_192                     192
-#define ES9219C_REG_193                     193
-#define ES9219C_REG_194                     194
-#define ES9219C_REG_195                     195
-#define ES9219C_REG_196                     196
-#define ES9219C_REG_197                     197
-#define ES9219C_REG_198                     198
-#define ES9219C_REG_199                     199
-#define ES9219C_REG_200                     200
-#define ES9219C_REG_201                     201
-#endif
+
 
 #define ES9218P_SYSTEM_REG                  0
 #define ES9218P_INPUT_SELECT                1
@@ -273,7 +246,9 @@ struct es9218_data {
 #endif
     bool    always_power_on;
     bool    use_internal_ldo;
-    bool    is_es9219c;
+#if defined(CONFIG_MACH_SM6150_MH3_LAO_KR)
+    struct regulator *dac_comparator_regulator;
+#endif	
 };
 
 
@@ -405,4 +380,3 @@ struct sabre_custom_filter es9218_sabre_custom_ft[] = {
 
 
 #endif  /* End of   __ES9218P_H__   */
-
