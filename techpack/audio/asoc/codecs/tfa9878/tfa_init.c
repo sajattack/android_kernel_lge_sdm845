@@ -3,13 +3,15 @@
  *
  */
 
+#if !defined(DEBUG)
 #define DEBUG
+#endif
 
-#include "dbgprint.h"
-#include "tfa_service.h"
-#include "tfa_internal.h"
-#include "tfa_container.h"
-#include "tfa98xx_tfafieldnames.h"
+#include "inc/dbgprint.h"
+#include "inc/tfa_service.h"
+#include "inc/tfa_internal.h"
+#include "inc/tfa_container.h"
+#include "inc/tfa98xx_tfafieldnames.h"
 
  /* The CurrentSense4 registers are not in the datasheet */
 #define TFA98XX_CURRENTSENSE4_CTRL_CLKGATECFOFF (1 << 2)
@@ -522,7 +524,7 @@ static enum tfa98xx_error tfa9912_set_osc_powerdown
 *
 *  @param[in] tfa device description structure
 *  @param[in] state State of the low power mode1 detector control
-*  0 - low power mode1 detector control enabled, 
+*  0 - low power mode1 detector control enabled,
 *  1 - low power mode1 detector control disabled(low power mode is also disabled).
 *
 *  @return TFA98XX_ERROR_OK when successfull, error otherwise.

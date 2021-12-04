@@ -2,12 +2,15 @@
  * Copyright 2014-2017 NXP Semiconductors
  */
 
+#if !defined(DEBUG)
 #define DEBUG
+#endif
 
-#include "tfa_container.h"
-#include "tfa.h"
-#include "tfa98xx_tfafieldnames.h"
-#include "tfa_internal.h"
+#include "inc/tfa_container.h"
+#include "inc/tfa.h"
+#include "inc/tfa98xx_tfafieldnames.h"
+#include "inc/tfa_internal.h"
+#include "inc/config.h"
 
  /* defines */
 #define MODULE_BIQUADFILTERBANK 2
@@ -459,13 +462,16 @@ static enum tfa98xx_error tfa_cont_write_vstepMax2_One
 	 * else it remains unchanged.
 	 */
 	pr_info("%s: is_cold %d\n", __func__, tfa->is_cold);
+
 	if (tfa_needs_reset(tfa) == 1) {
 		if (new_msg->message_type == 0) {
-			cmdid[2] = SB_PARAM_SET_ALGO_PARAMS;
+			if (cmdid[2] == SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET)
+				cmdid[2] = SB_PARAM_SET_ALGO_PARAMS;
 			if (tfa->verbose)
 				pr_debug("P-ID for SetAlgoParams modified!\n");
 		} else if (new_msg->message_type == 2) {
-			cmdid[2] = SB_PARAM_SET_MBDRC;
+			if (cmdid[2] == SB_PARAM_SET_MBDRC_WITHOUT_RESET)
+				cmdid[2] = SB_PARAM_SET_MBDRC;
 			if (tfa->verbose)
 				pr_debug("P-ID for SetMBDrc modified!\n");
 		}
@@ -719,7 +725,12 @@ enum tfa98xx_error tfa_cont_write_file(struct tfa_device *tfa,
 	char sub_ver_string[8] = {0};
 	int subversion = 0;
 	char *data_buf;
+#if defined(TFADSP_SET_EXT_TEMP_FROM_DRIVER)
 	int temp_index;
+#endif
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+	uint8_t org_cmd;
+#endif
 
 	if (tfa->verbose)
 		tfa_cont_show_header(hdr);
@@ -788,11 +799,12 @@ enum tfa98xx_error tfa_cont_write_file(struct tfa_device *tfa,
 	case msg_hdr: /* generic DSP message */
 		size = hdr->size - sizeof(struct tfa_msg_file);
 
+		data_buf = (char *)((struct tfa_msg_file *)hdr)->data;
+
 #if defined(TFADSP_SET_EXT_TEMP_FROM_DRIVER)
 		/* write temp stored in driver */
-		data_buf = (char *)((struct tfa_msg_file *)hdr)->data;
 		/* SetChipTempSelect */
-		if (((data_buf[1] & 0xf0) == 0x80)
+		if ((data_buf[1] == (0x80 | MODULE_FRAMEWORK))
 			&& data_buf[2] == FW_PAR_ID_SET_CHIP_TEMP_SELECTOR
 			&& tfa->temp != 0xffff) {
 			/* set index by skipping command and two parameters */
@@ -817,8 +829,44 @@ enum tfa98xx_error tfa_cont_write_file(struct tfa_device *tfa,
 		}
 #endif /* TFADSP_SET_EXT_TEMP_FROM_DRIVER */
 
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+		if (tfa->is_configured == 1) {
+			org_cmd = data_buf[2];
+
+			if ((data_buf[1] == (0x80 | MODULE_SPEAKERBOOST))
+				&& (data_buf[2] == SB_PARAM_SET_ALGO_PARAMS))
+				/* SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET */
+			{
+				// pr_debug("SetAlgoParams modified! cmd=0x%2x (to 0x02)\n",
+				// 	data_buf[2]);
+				data_buf[2] = SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET;
+			} else if ((data_buf[1] == (0x80 | MODULE_SPEAKERBOOST))
+				&& (data_buf[2] == SB_PARAM_SET_MBDRC))
+				/* SB_PARAM_SET_MBDRC_WITHOUT_RESET */
+			{
+				// pr_debug("SetMBDrc modified! cmd=0x%2x (to 0x08)\n",
+				// 	data_buf[2]);
+				data_buf[2] = SB_PARAM_SET_MBDRC_WITHOUT_RESET;
+			}
+
+			if (org_cmd != data_buf[2])
+				pr_info("%s: cmd=0x%02x to 0x%02x (configured)\n",
+					__func__, org_cmd, data_buf[2]);
+		}
+#endif /* TFA_RECONFIG_WITHOUT_RESET */
+
 		err = dsp_msg(tfa, size,
 			(const char *)((struct tfa_msg_file *)hdr)->data);
+
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+		if (tfa->is_configured == 1) {
+			if (org_cmd != data_buf[2]) {
+				pr_info("%s: cmd=0x%02x to 0x%02x (restored)\n",
+					__func__, data_buf[2], org_cmd);
+				data_buf[2] = org_cmd;
+			}
+		}
+#endif /* TFA_RECONFIG_WITHOUT_RESET */
 
 		/* Reset bypass if writing msg files */
 		if (err == TFA98XX_ERROR_OK)
@@ -2323,7 +2371,6 @@ enum tfa98xx_error tfa_cont_write_profile(struct tfa_device *tfa,
 				(prof->list[i].offset
 				+ (char *)tfa->cnt);
 			err = dsp_msg(tfa, size,
-			
 				prof->list[i].offset
 				+ 2 + (char *)tfa->cnt);
 			if (tfa->verbose) {
@@ -2578,6 +2625,30 @@ int tfa_cont_is_dev_specific_profile(struct tfa_container *cnt,
 
 	return 0;
 }
+
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+/**
+ * Is the profile an overriding profile
+ */
+int tfa_cont_is_overriding_profile(struct tfa_device *tfa, int prof_idx)
+{
+	char prof_name[MAX_CONTROL_NAME] = {0};
+
+	if ((tfa->dev_idx < 0) || (tfa->dev_idx >= tfa->cnt->ndev))
+		return TFA_ERROR;
+
+	strlcpy(prof_name, tfa_cont_profile_name(tfa->cnt,
+		tfa->dev_idx, prof_idx), MAX_CONTROL_NAME);
+	/* Check if next profile is tap profile */
+	if (strnstr(prof_name, ".over", strlen(prof_name)) != NULL) {
+		pr_debug("Using Overriding profile: '%s'\n",
+			tfa_cont_profile_name(tfa->cnt, tfa->dev_idx, prof_idx));
+		return 1;
+	}
+
+	return 0;
+}
+#endif /* TFA_USE_OVERRIDING_PROFILE */
 
 /*
  * Get the name of the profile at certain index for a device
@@ -3001,7 +3072,7 @@ int tfa_tib_dsp_msgmulti(struct tfa_device *tfa,
 		tfa->individual_msg = 0; /* reset flag */
 		return 1; /* 1 means last message is done! */
 	}
-	
+
 	if (cmd == SB_PARAM_SET_RE25C && buf[1] == 0x81) {
 		pr_debug("%s: found last message - sending: Re25C cmd=%d\n",
 			__func__, cmd);

@@ -34,7 +34,11 @@ obj-$(CONFIG_SND_SOC_WCD_SPI)  += snd-soc-wcd-spi.o
 snd-soc-msm-stub-objs := msm_stub.o
 obj-$(CONFIG_SND_SOC_MSM_STUB)  += snd-soc-msm-stub.o
 
-obj-$(CONFIG_SND_SOC_TFA9872)   += tfa9872/
+ifeq  ($(CONFIG_SND_SOC_TFA9878), y)
+	obj-$(CONFIG_SND_SOC_TFA9878)   += tfa9878/
+else
+	obj-$(CONFIG_SND_SOC_TFA9872)   += tfa9872/
+endif
 
 wcd-core-objs                  := wcd9xxx-rst.o wcd9xxx-core-init.o \
 				wcd9xxx-core.o wcd9xxx-irq.o \

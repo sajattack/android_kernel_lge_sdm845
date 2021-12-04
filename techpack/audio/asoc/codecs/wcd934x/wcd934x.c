@@ -4383,10 +4383,17 @@ static void tavil_tx_hpf_corner_freq_callback(struct work_struct *work)
 	}
 	snd_soc_update_bits(codec, dec_cfg_reg, TX_HPF_CUT_OFF_FREQ_MASK,
 			    hpf_cut_off_freq << 5);
+#if defined(CONFIG_MACH_SDM845_CAYMANSLM)
+	snd_soc_update_bits(codec, go_bit_reg, 0x03, 0x02);
+	/* Minimum 1 clk cycle delay is required as per HW spec */
+	usleep_range(1000, 1010);
+	snd_soc_update_bits(codec, go_bit_reg, 0x03, 0x01);
+#else
 	snd_soc_update_bits(codec, go_bit_reg, 0x02, 0x02);
 	/* Minimum 1 clk cycle delay is required as per HW spec */
 	usleep_range(1000, 1010);
 	snd_soc_update_bits(codec, go_bit_reg, 0x02, 0x00);
+#endif
 }
 
 static void tavil_tx_mute_update_callback(struct work_struct *work)
@@ -4536,6 +4543,15 @@ static int tavil_codec_enable_dec(struct snd_soc_dapm_widget *w,
 			snd_soc_update_bits(codec, dec_cfg_reg,
 					    TX_HPF_CUT_OFF_FREQ_MASK,
 					    CF_MIN_3DB_150HZ << 5);
+#if defined(CONFIG_MACH_SDM845_CAYMANSLM)
+			snd_soc_update_bits(codec, hpf_gate_reg, 0x03, 0x02);
+			/*
+			 * Minimum 1 clk cycle delay is required as per
+			 * HW spec.
+			 */
+			usleep_range(1000, 1010);
+			snd_soc_update_bits(codec, hpf_gate_reg, 0x03, 0x01);
+#else
 			snd_soc_update_bits(codec, hpf_gate_reg, 0x02, 0x02);
 			/*
 			 * Minimum 1 clk cycle delay is required as per
@@ -4543,6 +4559,7 @@ static int tavil_codec_enable_dec(struct snd_soc_dapm_widget *w,
 			 */
 			usleep_range(1000, 1010);
 			snd_soc_update_bits(codec, hpf_gate_reg, 0x02, 0x00);
+#endif
 		}
 		/* schedule work queue to Remove Mute */
 		schedule_delayed_work(&tavil->tx_mute_dwork[decimator].dwork,

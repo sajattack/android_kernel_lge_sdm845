@@ -560,9 +560,35 @@ tfa_cont_write_vstepMax2_One(int dev_idx,
 		}
 
 		if (org_cmd != cmdid[2])
-			pr_info("P-ID: cmdid[2]=0x%02x to 0x%02x\n",
+			pr_info("P-ID: cmdid[2]=0x%02x to 0x%02x (cold start)\n",
 				org_cmd, cmdid[2]);
 	}
+
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+	if (handles_local[dev_idx].is_configured == 1) {
+		uint8_t org_cmd = cmdid[2];
+
+		if ((cmdid[1] == (0x80 | MODULE_SPEAKERBOOST)) &&
+			(cmdid[2] == SB_PARAM_SET_ALGO_PARAMS))
+			/* SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET */
+		{
+			pr_debug("P-ID for SetAlgoParams modified! cmdid[2]=0x%2x (to 0x02)\n",
+				cmdid[2]);
+			cmdid[2] = SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET;
+		} else if ((cmdid[1] == (0x80 | MODULE_SPEAKERBOOST)) &&
+			(cmdid[2] == SB_PARAM_SET_MBDRC))
+			/* SB_PARAM_SET_MBDRC_WITHOUT_RESET */
+		{
+			pr_debug("P-ID for SetMBDrc modified! cmdid[2]=0x%2x (to 0x08)\n",
+				cmdid[2]);
+			cmdid[2] = SB_PARAM_SET_MBDRC_WITHOUT_RESET;
+		}
+
+		if (org_cmd != cmdid[2])
+			pr_info("P-ID: cmdid[2]=0x%02x to 0x%02x (configured)\n",
+				org_cmd, cmdid[2]);
+	}
+#endif /* TFA_RECONFIG_WITHOUT_RESET */
 
 	/*
 	 * +sizeof(struct tfa_partial_msg_block) will allow to fit one 
@@ -860,8 +886,12 @@ tfa_cont_write_file(int dev_idx,
 {
 	enum tfa98xx_error err = TFA98XX_ERROR_OK;
 	struct tfa_header *hdr = (struct tfa_header *)file->data;
+	char *data_buf;
 	enum tfa_header_type type;
 	int size;
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+	uint8_t org_cmd;
+#endif
 
 	if (tfa98xx_cnt_verbose)
 		tfa_cont_show_header(hdr);
@@ -871,8 +901,47 @@ tfa_cont_write_file(int dev_idx,
 	switch (type) {
 	case msg_hdr: /* generic DSP message */
 		size = hdr->size - sizeof(struct tfa_msg_file);
+
+		data_buf = (char *)((struct tfa_msg_file *)hdr)->data;
+
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+		if (handles_local[dev_idx].is_configured == 1) {
+			org_cmd = data_buf[2];
+
+			if ((data_buf[1] == (0x80 | MODULE_SPEAKERBOOST))
+				&& (data_buf[2] == SB_PARAM_SET_ALGO_PARAMS))
+				/* SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET */
+			{
+				pr_debug("SetAlgoParams modified! cmdid[2]=0x%2x (to 0x02)\n",
+					data_buf[2]);
+				data_buf[2] = SB_PARAM_SET_ALGO_PARAMS_WITHOUT_RESET;
+			} else if ((data_buf[1] == (0x80 | MODULE_SPEAKERBOOST))
+				&& (data_buf[2] == SB_PARAM_SET_MBDRC))
+				/* SB_PARAM_SET_MBDRC_WITHOUT_RESET */
+			{
+				pr_debug("SetMBDrc modified! cmdid[2]=0x%2x (to 0x08)\n",
+					data_buf[2]);
+				data_buf[2] = SB_PARAM_SET_MBDRC_WITHOUT_RESET;
+			}
+
+			if (org_cmd != data_buf[2])
+				pr_info("%s: cmdid[2]=0x%02x to 0x%02x (configured)\n",
+					__func__, org_cmd, data_buf[2]);
+		}
+#endif /* TFA_RECONFIG_WITHOUT_RESET */
+
 		err = dsp_msg(dev_idx, size,
 			(const char *)((struct tfa_msg_file *)hdr)->data);
+
+#if defined(TFA_RECONFIG_WITHOUT_RESET)
+		if (handles_local[dev_idx].is_configured == 1) {
+			if (org_cmd != data_buf[2]) {
+				pr_info("%s: cmdid[2]=0x%02x to 0x%02x (restored)\n",
+					__func__, data_buf[2], org_cmd);
+				data_buf[2] = org_cmd;
+			}
+		}
+#endif /* TFA_RECONFIG_WITHOUT_RESET */
 
 		/* reset bypass flag after writing msg */
 		if (err == TFA98XX_ERROR_OK)

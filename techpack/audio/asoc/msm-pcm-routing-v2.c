@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,8 +45,12 @@
 #include "msm-dolby-dap-config.h"
 #include "msm-ds2-dap-config.h"
 
-#if defined(CONFIG_SND_LGE_TX_NXP_LIB)
-#include "../dsp/lge_dsp_nxp_lib.h"
+#if defined(CONFIG_LVACFQ_V6)
+#include "../dsp/lvacfq_v6.h"
+#endif
+
+#if defined(CONFIG_LVACFQ_V10)
+#include "../dsp/lvacfq_v10.h"
 #endif
 
 #ifdef CONFIG_SND_LGE_STEREO_SPEAKER
@@ -14254,15 +14258,18 @@ static int msm_routing_put_lsm_app_type_cfg_control(
 					struct snd_ctl_elem_value *ucontrol)
 {
 	int i = 0, j;
-	int num_app_types = ucontrol->value.integer.value[i++];
+	int num_app_types;
 
-	memset(lsm_app_type_cfg, 0, MAX_APP_TYPES*
-				sizeof(struct msm_pcm_routing_app_type_data));
-	if (num_app_types > MAX_APP_TYPES) {
+	if (ucontrol->value.integer.value[0] > MAX_APP_TYPES) {
 		pr_err("%s: number of app types exceed the max supported\n",
 			__func__);
 		return -EINVAL;
 	}
+
+	num_app_types = ucontrol->value.integer.value[i++];
+	memset(lsm_app_type_cfg, 0, MAX_APP_TYPES*
+	       sizeof(struct msm_pcm_routing_app_type_data));
+
 	for (j = 0; j < num_app_types; j++) {
 		lsm_app_type_cfg[j].app_type =
 				ucontrol->value.integer.value[i++];
@@ -14928,7 +14935,7 @@ static const struct snd_kcontrol_new msm_lge_stereo_effect_controls[] = {
 };
 #endif
 
-#if defined(CONFIG_SND_LGE_TX_NXP_LIB)
+#if defined(CONFIG_LVACFQ_V6)
 static struct tx_control_param_t *param_value = NULL;
 static struct tx_control_param_t *default_params = NULL;
 
@@ -15221,6 +15228,521 @@ static const struct snd_kcontrol_new msm_hifi_rec_controls[] = {
     SOC_SINGLE_MULTI_EXT("Audio Tx Config", SND_SOC_NOPM, 0,
         0xFFFFFFFF, 0, 7, msm_routing_get_tx_cfg_control,
         msm_routing_put_tx_cfg_control),
+};
+#endif
+
+#if defined(CONFIG_LVACFQ_V10)
+static struct tx_control_param_t *param_value = NULL;
+static struct tx_control_param_t *default_params = NULL;
+struct tx_ac_voicefocus_param_t *tx_vf_control_param = NULL;
+struct tx_ac_deviceinfo_param_t *tx_deviceinfo_param = NULL;
+
+static void AC_setHPF(struct tx_control_param_t *ac_params, int16_t cutoff)
+{
+    if(!ac_params->HPF_OperatingMode)
+    {
+        ac_params->HPF_OperatingMode = 1;
+    }
+
+    if(0 == cutoff) {
+        ac_params->HighpassFrequency = AC_HPF_MIN;
+    }
+    else {
+        ac_params->HighpassFrequency = cutoff*AC_HPF_ENHANCED;
+        if(ac_params->HighpassFrequency > AC_HPF_MAX)
+        {
+           ac_params->HighpassFrequency = AC_HPF_MAX;
+        }
+    }
+
+    pr_info("%s: Mode = %d, HighpassFrequency = %d \n", __func__, ac_params->HPF_OperatingMode, ac_params->HighpassFrequency);
+
+    return;
+}
+
+static void AC_setVolume(struct tx_control_param_t *ac_params, struct tx_control_param_t *ac_default_params, int16_t volume)
+{
+    int i=0;
+
+    pr_info("%s: volume = %d \n", __func__, volume);
+
+    if(volume == AC_VOL_VIDEO_MUTE) // video only.
+    {
+        ac_params->OutputGain = AC_OUTPUTGAIN_MIN;
+
+        pr_info("%s: Tx mute \n", __func__);
+        return;
+    }
+
+    // default  DRC param : in : -62, -42, -30, -10, 0, out : -42, -22, -10, -10, -6
+    // default output gain : +9dB
+
+    if(volume >= 0) // Increasing output gain from default value.
+    {
+        if (volume == 0)
+	    {
+            ac_params->OutputGain = ac_default_params->OutputGain;
+        }
+        else
+        {
+            ac_params->OutputGain = (volume/10) + ac_default_params->OutputGain;
+            for (i=0;i<3;i++)
+            {
+	            ac_params->Mdrc_0_OutputLevels[i] = ac_default_params->Mdrc_0_OutputLevels[i];
+            }
+        }
+    }
+    else
+    {
+        pr_info("%s: (volume/10) = %d, \n", __func__, (volume/10));
+
+        if((volume/10) >= AC_VOL_DOWN_WITHDRC) //Decreasing DRC 1dB step.
+        {
+            ac_params->OutputGain = ac_default_params->OutputGain;
+	        for (i=0;i<3;i++)
+	        {
+	            ac_params->Mdrc_0_OutputLevels[i] = ac_default_params->Mdrc_0_OutputLevels[i] + (volume/10);
+				if(ac_params->Mdrc_0_OutputLevels[i] < AC_OUTPUTGAIN_MIN)
+				{
+					ac_params->Mdrc_0_OutputLevels[i] = AC_OUTPUTGAIN_MIN;
+				}
+                pr_info("%s: Case 1 : MDRC_out[%d] In [%d] Out [%d], \n", __func__, i,
+                        ac_default_params->Mdrc_0_OutputLevels[i], ac_params->Mdrc_0_OutputLevels[i]);
+	        }
+        }
+	    else // keep DRC bypass + decrease output gain 1dB step.
+	    {
+	        ac_params->OutputGain = ac_default_params->OutputGain - (AC_VOL_DOWN_WITHDRC - (volume/10));
+	        for (i=0;i<3;i++)
+	        {
+	            ac_params->Mdrc_0_OutputLevels[i] = ac_default_params->Mdrc_0_InputLevels[i];
+				if(ac_params->Mdrc_0_OutputLevels[i] < AC_OUTPUTGAIN_MIN)
+				{
+					ac_params->Mdrc_0_OutputLevels[i] = AC_OUTPUTGAIN_MIN;
+				}
+                pr_info("%s: Case 2 : MDRC_out[%d] In [%d] Out [%d], \n", __func__, i,
+                        ac_default_params->Mdrc_0_OutputLevels[i], ac_params->Mdrc_0_OutputLevels[i]);
+	        }
+	    }
+
+    }
+
+    pr_info("%s: ac_params->OutputGain = %d, \n", __func__, ac_params->OutputGain);
+
+    return;
+}
+
+static void AC_setWNS(struct tx_control_param_t *ac_params, int16_t onoff)
+{
+    if(!onoff) {
+        ac_params->WNS_OperatingMode = 0;
+    }
+    else {
+        ac_params->WNS_OperatingMode = 1;
+    }
+    pr_info("%s: onoff = %d,  WNS_OperatingMode = %d \n", __func__, onoff, ac_params->WNS_OperatingMode);
+
+    return;
+}
+
+static void AC_setHighSPL(struct tx_control_param_t *ac_params, int16_t onoff)
+{
+    if(!onoff) {
+        ac_params->HighSpl_OperatingMode = 0;
+    }
+    else {
+        ac_params->HighSpl_OperatingMode = 1;
+    }
+    pr_info("%s: onoff = %d,  HiSPL_OperatingMode = %d \n", __func__, onoff, ac_params->HighSpl_OperatingMode);
+
+    return;
+}
+
+static void AC_setAGC(struct tx_control_param_t *ac_params, struct tx_control_param_t *ac_default_params, int16_t onoff)
+{
+    int16_t AGC_Knees[5] = {-36,-26,-16,-14,-6};
+    int i =0;
+
+    if(!onoff)
+    {
+        ac_params->AVL_OperatingMode = 0;
+
+        for (i=0;i<4;i++)
+        {
+            ac_params->Mdrc_0_OutputLevels[i] = ac_default_params->Mdrc_0_OutputLevels[i];
+        }
+    }
+    else
+    {
+        ac_params->AVL_OperatingMode = 1;
+        for (i=0;i<4;i++)
+        {
+            ac_params->Mdrc_0_OutputLevels[i] = AGC_Knees[i];
+        }
+    }
+    pr_info("%s: onoff = %d,  AVL_OperatingMode = %d \n", __func__, onoff, ac_params->AVL_OperatingMode);
+
+    return;
+}
+
+static void AC_setLIMITER(struct tx_control_param_t *ac_params, int16_t threshold)
+{
+    if(threshold == 1) {
+        ac_params->Limiter_OperatingMode= 0;
+    }
+    else {
+        ac_params->Limiter_OperatingMode = 1;
+        ac_params->LimiterThreshold = threshold;
+    }
+    pr_info("%s: Limiter_OperatingMode = %d, Limiter_Threshold = %d \n", __func__, ac_params->Limiter_OperatingMode, ac_params->LimiterThreshold);
+
+    return;
+}
+
+static void AC_setAudioZoom(struct tx_ac_voicefocus_param_t *ac_params, uint16_t zoomlevel)
+{
+	uint16_t AF_level = (zoomlevel*3.3); // Camera Zoom level : 0 ~ 30
+
+	ac_params->EffectLevel = AF_level; // [0, 99]
+	ac_params->AudioFocusAngle = 0;
+	ac_params->AudioFocusWidth = 180 - zoomlevel; // [360, 240]
+	ac_params->Gain = 0;
+	ac_params->VoiceFocusEffectLevel = 100;
+
+    pr_info("%s: Level = %d Width = %d\n", __func__, ac_params->EffectLevel, ac_params->AudioFocusWidth);
+
+    return;
+}
+
+static void AC_setASMR(struct tx_ac_voicefocus_param_t *ac_params, uint16_t zoomlevel)
+{
+	uint16_t AF_level = (zoomlevel*3.3); // Camera Zoom level : 0 ~ 30
+
+	ac_params->EffectLevel = AF_level; // [0, 99]
+	ac_params->AudioFocusAngle = 0;
+	ac_params->AudioFocusWidth = 180; // [240 fixed], TBD
+	ac_params->Gain = 0;
+	ac_params->VoiceFocusEffectLevel = 100;
+
+    pr_info("%s: Level = %d Width = %d\n", __func__, ac_params->EffectLevel, ac_params->AudioFocusWidth);
+
+    return;
+}
+
+static void AC_setVoiceFocus(struct tx_ac_voicefocus_param_t *ac_params, uint16_t VF_level)
+{
+	uint16_t VF_effect_level = VF_level; // Voice Focus Strength Range : 0 ~ 100
+
+	ac_params->EffectLevel = VF_effect_level;
+	ac_params->AudioFocusAngle = 0;
+	ac_params->AudioFocusWidth = 180;
+	ac_params->Gain = 0;
+	ac_params->VoiceFocusEffectLevel = VF_effect_level;
+
+    pr_info("%s: Level = %d Width = %d\n", __func__, ac_params->EffectLevel, ac_params->VoiceFocusEffectLevel);
+
+    return;
+}
+
+static void AC_setDeviceInfo(struct tx_ac_deviceinfo_param_t*ac_params, int32_t Facing)
+{
+/*
+#define AC_OEM_DEVICE_FACING_BACK   (0) ///< The device is faced in opposite direction as main screen
+#define AC_OEM_DEVICE_FACING_FRONT  (1) ///< The device is faced in same direction as main screen
+*/
+	ac_params->DeviceFacing = Facing;
+	pr_info("%s: Facing = %d Orientation = %d\n", __func__, ac_params->DeviceFacing);
+
+	return;
+}
+
+static int msm_routing_get_tx_cfg_control(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+    int rc = 0;
+    int copp_idx;
+    uint32_t param_length = sizeof(struct tx_control_param_t);
+
+    pr_info("%s : enter \n", __func__);
+
+    copp_idx = adm_get_default_copp_idx(SLIMBUS_0_TX);
+    if ((copp_idx < 0) || (copp_idx > MAX_COPPS_PER_PORT)) {
+        pr_err("%s, no active copp to HiFi Rec. copp_idx:%d\n", __func__ , copp_idx);
+        return -EINVAL;
+    }
+    pr_info("%s: parameters copp_idx=%d, param_length=%d \n", __func__, copp_idx, param_length);
+
+    if (param_value == NULL) {
+        param_value = (struct tx_control_param_t*) kzalloc(param_length + sizeof(struct adm_param_data_v5), GFP_KERNEL);
+
+        if (!param_value) {
+            pr_err("%s, param memory alloc failed\n", __func__);
+            return -ENOMEM;
+        }
+    }
+
+    rc = adm_get_params(SLIMBUS_0_TX, copp_idx, AUDIO_MODULE_AC, AUDIO_PARAM_AC_OEM_CONTROL,
+        param_length + sizeof(struct adm_param_data_v5), (char *)param_value);
+    if (rc) {
+        pr_err("%s: get parameters failed rc=%d\n", __func__, rc);
+        rc = -EINVAL;
+
+        goto get_hifi_rec_value_err;
+    }
+
+    if(!default_params) {
+        default_params = (struct tx_control_param_t*) kzalloc(param_length + sizeof(struct adm_param_data_v5), GFP_KERNEL);
+        if (!default_params) {
+            pr_err("%s, param memory alloc failed\n", __func__);
+            rc = -ENOMEM;
+            goto get_hifi_rec_value_err;
+        }
+        memcpy((void *)default_params, (void *)param_value, param_length + sizeof(struct adm_param_data_v5));
+    }
+
+    return 0;
+
+get_hifi_rec_value_err:
+    kfree(param_value);
+    param_value = NULL;
+    return rc;
+}
+
+static int msm_routing_put_tx_cfg_control(struct snd_kcontrol *kcontrol,
+    struct snd_ctl_elem_value *ucontrol)
+{
+    int rc = 0;
+    int key_value;
+	int param_id = AUDIO_PARAM_AC_OEM_CONTROL;
+    struct tx_control_param_t *tx_control_param;
+
+    pr_info("%s : enter tx_enabled = %d\n", __func__, (int16_t)ucontrol->value.integer.value[0]);
+
+    if((!param_value) || (!default_params)) {
+        pr_err("%s: not called/complete msm_routing_get_tx_cfg_control() in advence\n", __func__);
+        rc = -EINVAL;
+        goto get_hifi_rec_value_err;
+    }
+
+    tx_control_param = param_value;
+    //pr_info("%s : OutputGain=%d, HighpassFrequency=%d, LimiterThreshold=%d \n",
+    //     __func__, tx_control_param->OutputGain, tx_control_param->HighpassFrequency, tx_control_param->LimiterThreshold);
+
+    if ( ucontrol->value.integer.value[0] == 0 ) {
+		goto get_hifi_rec_value_err;
+    } else if ( ucontrol->value.integer.value[0] == 1 ) {
+        AC_setVolume(tx_control_param, default_params, (int16_t)ucontrol->value.integer.value[1]);
+        AC_setWNS(tx_control_param, (int16_t)ucontrol->value.integer.value[2]);
+        AC_setAGC(tx_control_param, tx_control_param, (int16_t)ucontrol->value.integer.value[3]);
+        AC_setHPF(tx_control_param, (int16_t)ucontrol->value.integer.value[4]);
+        AC_setLIMITER(tx_control_param, (int16_t)ucontrol->value.integer.value[5]);
+        if ( ucontrol->value.integer.value[6] == 1 ) {
+            pr_info("%s: Pro Camcorder initialization. High SPL is Disabled.\n", __func__);
+            AC_setHighSPL(tx_control_param, 0);
+        }
+    } else if ( ucontrol->value.integer.value[0] == 2) {
+        key_value = ucontrol->value.integer.value[1];
+        switch(key_value) {
+            case 1 : //manual_gain
+                AC_setVolume(tx_control_param, default_params, (int16_t)ucontrol->value.integer.value[2]);
+                break;
+            case 2 : //manual_wnd
+                AC_setWNS(tx_control_param, (int16_t)ucontrol->value.integer.value[2]);
+                break;
+            case 3 : //manual_lcf
+                AC_setHPF(tx_control_param, (int16_t)ucontrol->value.integer.value[2]);
+                break;
+            case 4 : //manual_lmt
+                AC_setLIMITER(tx_control_param, (int16_t)ucontrol->value.integer.value[2]);
+                break;
+            case 5 : //high spl
+                AC_setHighSPL(tx_control_param, (int16_t)ucontrol->value.integer.value[2]);
+                break;
+        }
+    } else {
+        pr_info("%s: Normal Camcoder", __func__);
+        if ( ucontrol->value.integer.value[1] == 1 ) {
+            pr_info("%s: Normal Camcorder. High SPL is Disabled.\n", __func__);
+            AC_setHighSPL(tx_control_param, 0);
+        }
+    }
+
+    rc = q6adm_set_tx_cfg_parms(SLIMBUS_0_TX, param_id, tx_control_param);
+    pr_info("%s: end result = %d AC_OperatingMode = %d \n", __func__, rc, tx_control_param->AC_OperatingMode);
+
+	return rc;
+
+get_hifi_rec_value_err:
+    if ( param_value != NULL ){
+        kfree(param_value);
+        param_value = NULL;
+    }
+    if ( default_params != NULL ){
+        kfree(default_params);
+        default_params = NULL;
+    }
+    return rc;
+}
+
+static const struct snd_kcontrol_new msm_hifi_rec_controls[] = {
+    SOC_SINGLE_MULTI_EXT("Audio Tx Config", SND_SOC_NOPM, 0,
+        0xFFFFFFFF, 0, 7, msm_routing_get_tx_cfg_control,
+        msm_routing_put_tx_cfg_control),
+};
+
+static int msm_routing_get_tx_voice_focus_cfg_control(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+    pr_info("%s : enter \n", __func__);
+    return 0;
+}
+
+static int msm_routing_put_tx_voice_focus_cfg_control(struct snd_kcontrol *kcontrol,
+    struct snd_ctl_elem_value *ucontrol)
+{
+    int rc = 0;
+    int key_value = 0;
+	int param_id = 0;
+
+    pr_info("%s : enter tx_enabled = %d\n", __func__, (int16_t)ucontrol->value.integer.value[0]);
+
+	if ( tx_vf_control_param == NULL ) {
+		tx_vf_control_param = (struct tx_ac_voicefocus_param_t*) kzalloc(sizeof(struct tx_ac_voicefocus_param_t), GFP_KERNEL);
+        if (!tx_vf_control_param) {
+            pr_err("%s, param memory alloc failed\n", __func__);
+            return -ENOMEM;
+        }
+    }
+
+	if ( tx_deviceinfo_param == NULL ) {
+		tx_deviceinfo_param = (struct tx_ac_deviceinfo_param_t*) kzalloc(sizeof(struct tx_ac_deviceinfo_param_t), GFP_KERNEL);
+        if (!tx_vf_control_param) {
+            pr_err("%s, param memory alloc failed\n", __func__);
+            return -ENOMEM;
+        }
+    }
+
+    if ( ucontrol->value.integer.value[0] == 0 ) {
+		goto get_hifi_rec_value_err;
+    } else if ( ucontrol->value.integer.value[0] == 2) {
+        key_value = ucontrol->value.integer.value[1];
+        switch(key_value) {
+			case 6 : // Zoom Level
+				param_id = AUDIO_PARAM_AC_OEM_VOICEFOCUS;
+				if ( ucontrol->value.integer.value[3] == 1 ) { // 1 : ASMR_20, 2 : VOICE FOCUS, 3 : AUDIO ZOOM
+					AC_setASMR(tx_vf_control_param, (int16_t)ucontrol->value.integer.value[2]);
+				} else if ( ucontrol->value.integer.value[3] == 2 ) {
+					AC_setVoiceFocus(tx_vf_control_param, (int16_t)ucontrol->value.integer.value[2]);
+				} else if ( ucontrol->value.integer.value[3] == 3 ) {
+					AC_setAudioZoom(tx_vf_control_param, (int16_t)ucontrol->value.integer.value[2]);
+				}
+				rc = q6adm_set_tx_voice_focus_parms(SLIMBUS_0_TX, param_id, tx_vf_control_param);
+				break;
+			case 7 : // Device Info (facing, orientation)
+				param_id = AUDIO_PARAM_AC_OEM_DEVICEINFO;
+				AC_setDeviceInfo(tx_deviceinfo_param, (int16_t)ucontrol->value.integer.value[2]); // Device Info facing
+			    rc = q6adm_set_tx_device_info_parms(SLIMBUS_0_TX, param_id, tx_deviceinfo_param);
+				break;
+        }
+    } else {
+        pr_info("%s: Normal Camcoder", __func__);
+    }
+
+	if (rc){
+		pr_info("%s, failed to set adm...");
+		rc = -EINVAL;
+		goto get_hifi_rec_value_err;
+	}
+
+	pr_info("%s: end result = %d\n", __func__, rc);
+    return rc;
+
+get_hifi_rec_value_err:
+    if ( tx_vf_control_param != NULL ){
+        kfree(tx_vf_control_param);
+        tx_vf_control_param = NULL;
+    }
+
+    if ( tx_deviceinfo_param != NULL ){
+        kfree(tx_deviceinfo_param);
+        tx_deviceinfo_param = NULL;
+    }
+
+    return rc;
+}
+
+static const struct snd_kcontrol_new msm_audio_cam_controls[] = {
+    SOC_SINGLE_MULTI_EXT("Audio Tx Cam Config", SND_SOC_NOPM, 0,
+        0xFFFFFFFF, 0, 7, msm_routing_get_tx_voice_focus_cfg_control,
+        msm_routing_put_tx_voice_focus_cfg_control),
+};
+
+struct lgemixer_mixinglevel_t *tx_mix_param = NULL;
+
+static void AC_setMixLevel(struct lgemixer_mixinglevel_t *ac_params, int16_t Level)
+{
+    ac_params->mixinglevel = Level;
+    pr_info("%s: Level = %d \n", __func__, ac_params->mixinglevel);
+    return;
+}
+
+
+static int msm_routing_get_tx_mix_cfg_control(struct snd_kcontrol *kcontrol,
+					  struct snd_ctl_elem_value *ucontrol)
+{
+    pr_info("%s : enter \n", __func__);
+    return 0;
+}
+
+static int msm_routing_put_tx_mix_cfg_control(struct snd_kcontrol *kcontrol,
+    struct snd_ctl_elem_value *ucontrol)
+{
+    int rc = 0;
+	int param_id = 0;
+	uint32_t param_length = sizeof(struct lgemixer_mixinglevel_t);
+
+    pr_info("%s : enter tx_enabled = %d\n", __func__, (int16_t)ucontrol->value.integer.value[0]);
+
+	if ( tx_mix_param == NULL ) {
+		tx_mix_param = (struct lgemixer_mixinglevel_t *) kzalloc(param_length, GFP_KERNEL);
+        if (!tx_mix_param) {
+            pr_err("%s, param memory alloc failed\n", __func__);
+            return -ENOMEM;
+        }
+    }
+
+    if ( ucontrol->value.integer.value[0] == 0 ) {
+		goto get_hifi_rec_value_err;
+    } else if ( ucontrol->value.integer.value[0] == 2) {
+			param_id = CAPI_V2_PARAM_LGE_MIXER_MIXLEVEL;
+			pr_info("%s: Level = %d \n", __func__, (int16_t)ucontrol->value.integer.value[2]);
+			AC_setMixLevel(tx_mix_param, (int16_t)ucontrol->value.integer.value[2]);
+			rc = q6adm_set_tx_mix_parms(SLIMBUS_0_TX, param_id, tx_mix_param);
+    } else {
+        pr_info("%s: Normal Camcoder", __func__);
+    }
+
+	if (rc){
+		pr_info("%s, failed to set adm...");
+		rc = -EINVAL;
+		goto get_hifi_rec_value_err;
+	}
+
+	pr_info("%s: end result = %d\n", __func__, rc);
+    return rc;
+
+get_hifi_rec_value_err:
+    if ( tx_mix_param != NULL ){
+        kfree(tx_mix_param);
+        tx_mix_param = NULL;
+    }
+    return rc;
+}
+
+static const struct snd_kcontrol_new msm_audio_cam_mix_controls[] = {
+    SOC_SINGLE_MULTI_EXT("Audio Tx Cam Mix Config", SND_SOC_NOPM, 0,
+        0xFFFFFFFF, 0, 7, msm_routing_get_tx_mix_cfg_control,
+        msm_routing_put_tx_mix_cfg_control),
 };
 #endif
 
@@ -17042,9 +17564,11 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia1 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia4 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia8 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
+	{"MultiMedia9 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia1 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia4 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia8 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
+	{"MultiMedia9 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia1 Mixer", "SLIM_4_TX", "SLIMBUS_4_TX"},
 	{"MultiMedia1 Mixer", "SLIM_6_TX", "SLIMBUS_6_TX"},
 	{"MultiMedia1 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
@@ -18471,12 +18995,12 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AUDIO_REF_EC_UL10 MUX", "QUAT_TDM_RX_1", "QUAT_TDM_RX_1"},
 	{"AUDIO_REF_EC_UL10 MUX", "QUAT_TDM_RX_2", "QUAT_TDM_RX_2"},
 	{"AUDIO_REF_EC_UL10 MUX", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
-#ifdef CONFIG_MACH_LGE
+
 	{"AUDIO_REF_EC_UL16 MUX", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"AUDIO_REF_EC_UL16 MUX", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"AUDIO_REF_EC_UL16 MUX", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"AUDIO_REF_EC_UL16 MUX", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
-#endif
+
 	{"AUDIO_REF_EC_UL17 MUX", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"AUDIO_REF_EC_UL17 MUX", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"AUDIO_REF_EC_UL17 MUX", "TERT_MI2S_TX", "TERT_MI2S_TX"},
@@ -20293,9 +20817,18 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(platform, aptx_dec_license_controls,
 					ARRAY_SIZE(aptx_dec_license_controls));
 
-#if defined(CONFIG_SND_LGE_TX_NXP_LIB)
+#if defined(CONFIG_LVACFQ_V6)
     snd_soc_add_platform_controls(platform, msm_hifi_rec_controls,
                     ARRAY_SIZE(msm_hifi_rec_controls));
+#endif
+
+#if defined(CONFIG_LVACFQ_V10)
+    snd_soc_add_platform_controls(platform, msm_hifi_rec_controls,
+                    ARRAY_SIZE(msm_hifi_rec_controls));
+    snd_soc_add_platform_controls(platform, msm_audio_cam_controls,
+                    ARRAY_SIZE(msm_audio_cam_controls));
+    snd_soc_add_platform_controls(platform, msm_audio_cam_mix_controls,
+                    ARRAY_SIZE(msm_audio_cam_mix_controls));
 #endif
 
 #if defined(CONFIG_SND_LGE_CROSSTALK)

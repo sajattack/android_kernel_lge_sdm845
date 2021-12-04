@@ -123,7 +123,7 @@ struct tfa98xx {
 	int reset_gpio;
 	int power_gpio;
 	int irq_gpio;
-	enum tfa_reset_polarity reset_polarity; 
+	enum tfa_reset_polarity reset_polarity;
 	struct list_head list;
 	struct tfa_device *tfa;
 	int vstep;

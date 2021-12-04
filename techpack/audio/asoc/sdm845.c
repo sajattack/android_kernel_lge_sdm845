@@ -10,6 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
@@ -596,6 +597,9 @@ static SOC_ENUM_SINGLE_EXT_DECL(ext_disp_rx_format, ext_disp_bit_format_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_0_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_2_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_0_tx_sample_rate, slim_sample_rate_text);
+#ifdef CONFIG_MACH_LGE
+static SOC_ENUM_SINGLE_EXT_DECL(slim_1_tx_sample_rate, slim_sample_rate_text);
+#endif
 static SOC_ENUM_SINGLE_EXT_DECL(slim_5_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_6_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(bt_sample_rate, bt_sample_rate_text);
@@ -840,6 +844,14 @@ static int fmradio_rf_ctrl_put(struct snd_kcontrol *kcontrol,
 	pr_info("%s : %d\n", __func__, rf_enable);
 	return 0;
 }
+
+#ifdef CONFIG_MACH_SDM845_CAYMANSLM
+static int use_ess_headset_switch;
+static int reset_gpio; // HIFI_RESET_N
+static int power_gpio; // HIFI_LDO_SW
+static int hph_switch; // HIFI_MODE2
+static int hsdet_l_switch_gpio ; // HSDET_L_SW
+#endif
 #endif
 
 static void *def_tavil_mbhc_cal(void);
@@ -3311,6 +3323,10 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			slim_rx_sample_rate_get, slim_rx_sample_rate_put),
 	SOC_ENUM_EXT("SLIM_0_TX SampleRate", slim_0_tx_sample_rate,
 			slim_tx_sample_rate_get, slim_tx_sample_rate_put),
+#ifdef CONFIG_MACH_LGE
+	SOC_ENUM_EXT("SLIM_1_TX SampleRate", slim_1_tx_sample_rate,
+			slim_tx_sample_rate_get, slim_tx_sample_rate_put),
+#endif
 	SOC_ENUM_EXT("SLIM_5_RX SampleRate", slim_5_rx_sample_rate,
 			slim_rx_sample_rate_get, slim_rx_sample_rate_put),
 	SOC_ENUM_EXT("SLIM_6_RX SampleRate", slim_6_rx_sample_rate,
@@ -5553,7 +5569,6 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 			__func__, cpu_dai->id);
 		goto err;
 	}
-
 	/*
 	 * Muxtex protection in case the same MI2S
 	 * interface using for both TX and RX  so
@@ -8198,7 +8213,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 #if 1 //
 		ret = of_property_read_u32(pdev->dev.of_node,
 					"lge,ras-spk-amp", &use_ras_spkr_amp);
-		
 		if(use_ras_spkr_amp == 1) {
 			dev_err(&pdev->dev, "RAS spk\n");
 		} else {
@@ -8261,7 +8275,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		}
 		gpio_direction_output(fmradio_rf_ctrl_gpio, 0);
 	}
-#endif
 
 	ret = of_property_read_u32(pdev->dev.of_node,
 			"lge,3rd-spk-amp", &use_3rd_spkr_amp);
@@ -8274,6 +8287,90 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		if (ret)
 			goto err;
 	}
+
+#ifdef CONFIG_MACH_SDM845_CAYMANSLM
+	ret = of_property_read_u32(pdev->dev.of_node,
+				"lge,ess-headset-switch", &use_ess_headset_switch);
+	if(use_ess_headset_switch == 1){
+        pr_err("%s : Use ess-headset-switch\n", __func__);
+
+        // for detect/L,R bypass with ess.
+        reset_gpio = of_get_named_gpio(pdev->dev.of_node, "dac,reset-gpio", 0);
+        if (reset_gpio < 0) {
+            pr_err("%s : Looking up failed dac,reset-gpio\n", __func__);
+        }
+        pr_info("%s: dac reset gpio %d", __func__, reset_gpio);
+
+        power_gpio = of_get_named_gpio(pdev->dev.of_node, "dac,power-gpio", 0);
+        if (power_gpio < 0) {
+            pr_err("%s : Looking up failed dac,power-gpio\n", __func__);
+        }
+        pr_info("%s: power gpio %d\n", __func__, power_gpio);
+
+        hph_switch = of_get_named_gpio(pdev->dev.of_node, "dac,hph-sw", 0);
+        if (hph_switch < 0) {
+            pr_err("%s : Looking up failed dac,hph-sw\n", __func__);
+        }
+        pr_info("%s: hph switch %d", __func__, hph_switch);
+
+        hsdet_l_switch_gpio = of_get_named_gpio(pdev->dev.of_node, "dac,switch-gpio", 0);
+        if (hsdet_l_switch_gpio < 0) {
+            pr_err("%s : Looking up failed dac,switch-gpio\n", __func__);
+        }
+        pr_info("%s: hsdet_l_switch %d", __func__, hsdet_l_switch_gpio);
+
+        ret = gpio_request(reset_gpio, "ess_reset");
+        if (ret < 0) {
+            pr_err("%s(): ess reset request failed\n", __func__);
+        }
+        ret = gpio_direction_output(reset_gpio, 1);
+        if (ret < 0) {
+            pr_err("%s: ess reset set failed\n", __func__);
+        }
+        gpio_set_value(reset_gpio, 0);
+
+        ret = gpio_request(hsdet_l_switch_gpio, "hsdet_l_switch");
+        if (ret < 0) {
+            pr_err("%s(): hsdet_l_switch request failed\n", __func__);
+        }
+        ret = gpio_direction_output(hsdet_l_switch_gpio, 1);
+        if (ret < 0) {
+            pr_err("%s: hsdet_l_switch set failed\n", __func__);
+        }
+        gpio_set_value(hsdet_l_switch_gpio, 0);
+
+        ret = gpio_request(power_gpio, "ess_power");
+        if (ret < 0) {
+            pr_err("%s(): ess power request failed\n", __func__);
+        }
+        ret = gpio_direction_output(power_gpio, 1);
+        if (ret < 0) {
+            pr_err("%s: ess power set failed\n", __func__);
+        }
+        gpio_set_value(power_gpio, 0);
+
+        ret = gpio_request(hph_switch, "ess_switch");
+        if (ret < 0) {
+            pr_err("%s(): ess switch request failed\n", __func__);
+        }
+        ret = gpio_direction_output(hph_switch, 1);
+        if (ret < 0) {
+            pr_err("%s: ess switch set failed\n", __func__);
+        }
+        gpio_set_value(hph_switch, 0);
+        gpio_set_value(power_gpio, 1);
+        gpio_set_value(hph_switch, 1);
+
+        pr_info("%s(): hph_switch get value = %d\n", __func__, __gpio_get_value(hph_switch));
+        pr_info("%s(): power_gpio get value = %d\n", __func__, __gpio_get_value(power_gpio));
+        pr_info("%s(): reset_gpio get value = %d\n", __func__, __gpio_get_value(reset_gpio));
+        pr_info("%s(): hsdet_l_switch_gpio get value = %d\n", __func__, __gpio_get_value(hsdet_l_switch_gpio));
+	}
+    else{
+        pr_err("%s : Don't use ess-headset-switch\n", __func__);
+    }
+#endif
+#endif
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret == -EPROBE_DEFER) {

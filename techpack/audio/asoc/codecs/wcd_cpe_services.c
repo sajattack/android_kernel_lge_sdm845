@@ -1047,7 +1047,7 @@ static void cpe_svc_core_cmi_handler(
 	pr_debug("%s: event = %d\n",
 		 __func__, parameter->event);
 
-	if (parameter->event != MI_API_MSG)
+	if (parameter->event != CMI_API_MSG)
 		return;
 
 	hdr = (struct cmi_hdr *) parameter->message;

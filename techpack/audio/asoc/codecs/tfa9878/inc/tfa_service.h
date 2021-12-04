@@ -86,12 +86,12 @@ extern "C" {
 #define TFA72_ALGOPARAMETER_LENGTH_STEREO	(3*356)
 #define TFA2_MBDRCPARAMETER_LENGTH			(3*152)
 /* 154 is including the cmd-id */
-#define TFA72_MBDRCPARAMETER_LENGTH			(3*98)	
+#define TFA72_MBDRCPARAMETER_LENGTH			(3*98)
 #define TFA1_PRESET_LENGTH					87
 #define TFA1_DRC_LENGTH						381		/* 127 words */
 #define TFA2_FILTERCOEFSPARAMETER_LENGTH	(3*168)
 /* 170 is including the cmd-id */
-#define TFA72_FILTERCOEFSPARAMETER_LENGTH	(3*156) 
+#define TFA72_FILTERCOEFSPARAMETER_LENGTH	(3*156)
 
 /* Maximum number of retries for DSP result
  * Keep this value low!
@@ -489,7 +489,7 @@ enum tfa98xx_error tfa98xx_dsp_system_stable(struct tfa_device *tfa,
 
 enum tfa98xx_error tfa98xx_auto_copy_mtp_to_iic(struct tfa_device *tfa);
 
-/** 
+/**
  * check the state of the DSP coolflux
  * @param tfa the device struct pointer
  * @return the value of CFE
@@ -510,7 +510,7 @@ int tfa_cf_enabled(struct tfa_device *tfa);
 enum tfa98xx_error tfa_dsp_patch(struct tfa_device *tfa,
 	int patch_length, const unsigned char *patch_bytes);
 
-/** 
+/**
  * load explicitly the speaker parameters in case of free speaker,
  * or when using a saved speaker model
  */
@@ -518,7 +518,7 @@ enum tfa98xx_error tfa98xx_dsp_write_speaker_parameters
 	(struct tfa_device *tfa, int length,
 	const unsigned char *pSpeakerBytes);
 
-/** 
+/**
  * read the speaker parameters as used by the SpeakerBoost processing
  */
 enum tfa98xx_error tfa98xx_dsp_read_speaker_parameters
@@ -871,7 +871,7 @@ int tfa_get_bf(struct tfa_device *tfa, const uint16_t bf);
  * Set the value of a given bitfield
  * @param bf the value indicating which bitfield
  * @param bf_value the value of the bitfield
- * @param p_reg_value a pointer to register where to write the bitfield value 
+ * @param p_reg_value a pointer to register where to write the bitfield value
  */
 int tfa_set_bf_value(const uint16_t bf,
 	const uint16_t bf_value, uint16_t *p_reg_value);
@@ -883,14 +883,14 @@ int tfa_read_reg(struct tfa_device *tfa,
 	const uint16_t bf);
 
 /* bitfield */
-/* 
+/*
  * get the datasheet or bitfield name corresponding to the bitfield number
  * @param num is the number for which to get the bitfield name
  * @param rev is the device type
  */
 char *tfa_cont_bf_name(uint16_t num, unsigned short rev);
 
-/* 
+/*
  * get the datasheet name corresponding to the bitfield number
  * @param num is the number for which to get the bitfield name
  * @param rev is the device type
@@ -987,6 +987,12 @@ enum tfa98xx_error tfa_run_mute(struct tfa_device *tfa);
 enum tfa98xx_error tfa_run_unmute(struct tfa_device *tfa);
 
 /*
+ * run post-calibration process
+ * @param tfa the device struct pointer
+ */
+enum tfa98xx_error tfa_wait_cal(struct tfa_device *tfa);
+
+/*
  * wait for calibrate_done
  * @param tfa the device struct pointer
  * @param calibrate_done pointer to status of calibration
@@ -1026,7 +1032,7 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device* tfa);
  * this implies a full system startup when the system was not already started
  * @param tfa the device struct pointer
  * @param force indicates wether a full system startup should be allowed
- * @param profile the profile that should be loaded 
+ * @param profile the profile that should be loaded
  */
 enum tfa98xx_error tfa_run_speaker_boost(struct tfa_device *tfa,
 	int force, int profile);
@@ -1065,19 +1071,19 @@ enum tfa98xx_error tfa_cf_powerup(struct tfa_device *tfa);
 enum tfa98xx_error show_current_state(struct tfa_device *tfa);
 
 /*
- * Init registers and coldboot dsp 
+ * Init registers and coldboot dsp
  * @param tfa the device struct pointer
  */
 int tfa_reset(struct tfa_device *tfa);
 
 /*
- * Get profile from a register 
+ * Get profile from a register
  * @param tfa the device struct pointer
  */
 int tfa_dev_get_swprof(struct tfa_device *tfa);
 
 /*
- * Save profile in a register 
+ * Save profile in a register
  */
 int tfa_dev_set_swprof(struct tfa_device *tfa, unsigned short new_value);
 
@@ -1109,7 +1115,7 @@ enum tfa98xx_error tfa7478_status(struct tfa_device *tfa);
 #endif
 
 /*
- * function overload for flag_mtp_busy 
+ * function overload for flag_mtp_busy
  */
 int tfa_dev_get_mtpb(struct tfa_device *tfa);
 

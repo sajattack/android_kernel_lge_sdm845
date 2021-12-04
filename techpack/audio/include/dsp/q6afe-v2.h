@@ -13,7 +13,7 @@
 #define __Q6AFE_V2_H__
 #include <dsp/apr_audio-v2.h>
 #include <dsp/rtac.h>
-#if defined(CONFIG_SND_SOC_TFA9872)
+#if defined(CONFIG_SND_SOC_TFA9872)||defined(CONFIG_SND_SOC_TFA9878)
 #include <ipc/apr_tal.h>
 #endif
 
@@ -46,7 +46,7 @@
 #define AFE_CLK_VERSION_V2    2
 #define AFE_API_VERSION_SUPPORT_SPV3	2
 
-#if defined(CONFIG_SND_SOC_TFA9872)
+#if defined(CONFIG_SND_SOC_TFA9872)||defined(CONFIG_SND_SOC_TFA9878)
 /*Module ID*/
 #define AFE_MODULE_ID_TFADSP          0x1000B910
 
@@ -316,7 +316,7 @@ struct aanc_data {
 	uint32_t aanc_tx_port_sample_rate;
 };
 
-#if defined(CONFIG_SND_SOC_TFA9872)
+#if defined(CONFIG_SND_SOC_TFA9872)||defined(CONFIG_SND_SOC_TFA9878)
 /*afe tfadsp msg type*/
 #define AFE_TFADSP_MSG_TYPE_NORMAL 0
 #define AFE_TFADSP_MSG_TYPE_RAW    1
@@ -355,11 +355,18 @@ struct afe_tfa_dsp_read_msg_t {
 	struct apr_hdr hdr;
 	struct afe_port_cmd_get_param_v2 get_param;
 } __packed;
+#endif /* CONFIG_SND_SOC_TFA9872 || CONFIG_SND_SOC_TFA9878 */
 
+#if defined(CONFIG_SND_SOC_TFA9872)
 typedef int (*tfa_event_handler_t)(int devidx, int tfadsp_event);
 typedef int (*dsp_send_message_t)(int devidx, int length,
 	char *buf, int msg_type, int num_msgs);
 typedef int (*dsp_read_message_t)(int devidx, int length, char *buf);
+#endif
+
+#if defined(CONFIG_SND_SOC_TFA9878)
+int afe_tfadsp_read(void * dev, int buf_size, unsigned char *buf);
+int afe_tfadsp_write(void * dev, int buf_size, const char *buf);
 #endif
 
 int afe_open(u16 port_id, union afe_port_config *afe_config, int rate);

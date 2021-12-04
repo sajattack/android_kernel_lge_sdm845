@@ -1,3 +1,4 @@
+#if defined(CONFIG_LVACFQ_V6)
 /*
  * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
@@ -160,3 +161,4 @@ struct adm_tx_config_param {
 } __packed;
 
 int q6adm_set_tx_cfg_parms(int port_id, struct tx_control_param_t *tx_control_param);
+#endif

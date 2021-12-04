@@ -425,6 +425,7 @@ static void tfa_set_query_info(int dev_idx)
 	// handles_local[dev_idx].ext_dsp = 0;
 	handles_local[dev_idx].is_cold = 1;
 	handles_local[dev_idx].is_bypass = 0;
+	handles_local[dev_idx].is_configured = 0;
 	handles_local[dev_idx].saam_use_case = 0; /* not in use */
 	handles_local[dev_idx].stream_state = 0; /* not in use */
 	handles_local[dev_idx].individual_msg = 0;
@@ -3746,6 +3747,12 @@ tfa_run_speaker_boost(tfa98xx_handle_t handle, int force, int profile)
 			return err;
 		}
 
+		if (handles_local[handle].is_configured) {
+			pr_info("%s: skip reconfiguration if it is already done\n",
+				__func__);
+			return err;
+		}
+
 		/* Save the current profile and set the vstep to 0 */
 		/* This needs to be overwritten even in CF bypass */
 		tfa_set_swprof(handle, (unsigned short)profile);
@@ -3823,6 +3830,9 @@ tfa_run_speaker_startup(tfa98xx_handle_t handle, int force, int profile)
 	/* SET auto_copy_mtp_to_iic (bit 5 of A3) to 1. Workaround for 72 and 88 (see PLMA5290) */
 	err = reg_write(handle, 0xA3, 0x20);
 	if (err)
+		return err;
+
+	if (handles_local[handle].is_configured)
 		return err;
 
 	/* DSP is running now */

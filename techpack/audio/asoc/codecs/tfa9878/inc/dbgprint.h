@@ -57,7 +57,7 @@
 #   define DEBUG3(x...) _DEBUG(3,x)
 #   define ERRORMSG(x...) _ERRORMSG(x)
 /*
-#   define pr_debug(x...)	printk(x) 
+#   define pr_debug(x...)	printk(x)
 #   define pr_err(x...)	printk(KERN_INFO PREFIX " **ERROR** " x)
 #   define PRINT_ASSERT(e)	if ((e)) pr_err("PrintAssert:%s (%s:%d) error code:%d\n",__func__,__FILE__,__line__, e)
 */
@@ -94,7 +94,7 @@
 							if ((stream = freopen("nxp_tfa.txt", "ab+", stdout)) == NULL) exit(-1);	\
 							printf(__VA_ARGS__);												\
 							freopen("CON", "ab+", stdout);										\
-						} 
+						}
 */
 #	define pr_err(...)	fprintf(stderr,__VA_ARGS__)
 #	define PRINT_FILE(file,...)	fprintf(file,__VA_ARGS__)

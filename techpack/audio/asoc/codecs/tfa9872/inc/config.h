@@ -97,7 +97,7 @@ struct tfa98xx {
 	struct delayed_work interrupt_work;
 	struct delayed_work tapdet_work;
 	struct mutex dsp_lock;
-#ifdef CONFIG_SND_LGE_TX_NXP_LIB
+#ifdef CONFIG_LVACFQ_V6
 	char edev_name[15];
 #endif
 	int dsp_init;

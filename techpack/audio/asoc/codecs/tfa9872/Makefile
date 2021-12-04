@@ -13,6 +13,7 @@ TFA_EXCEPTION_AT_TRANSITION=1
 TFA_USE_DEVICE_SPECIFIC_CONTROL=1
 TFA_PROFILE_ON_DEVICE    =1
 TFA_SOFTDSP              =1
+TFA_RECONFIG_WITHOUT_RESET=1
 TFA_SRC_DIR              =/asoc/codecs/$(TFA_VERSION)
 TFA98XX_FLAGS           := -DUSE_TFA9872
 
@@ -52,6 +53,9 @@ ccflags-y               += -DTFA_DISABLED_CODE
 endif
 ifdef TFA_ENABLED_CODE
 ccflags-y               += -DTFA_ENABLED_CODE
+endif
+ifdef TFA_RECONFIG_WITHOUT_RESET
+ccflags-y               += -DTFA_RECONFIG_WITHOUT_RESET
 endif
 
 # objs

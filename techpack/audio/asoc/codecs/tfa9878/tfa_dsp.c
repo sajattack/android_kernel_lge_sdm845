@@ -2,14 +2,16 @@
  * Copyright 2014-2017 NXP Semiconductors
  */
 
+#if !defined(DEBUG)
 #define DEBUG
+#endif
 
-#include "dbgprint.h"
-#include "tfa_device.h"
-#include "tfa_container.h"
-#include "tfa.h"
-#include "tfa98xx_tfafieldnames.h"
-#include "tfa_internal.h"
+#include "inc/dbgprint.h"
+#include "inc/tfa_device.h"
+#include "inc/tfa_container.h"
+#include "inc/tfa.h"
+#include "inc/tfa98xx_tfafieldnames.h"
+#include "inc/tfa_internal.h"
 
 /* handle macro for bitfield */
 #define TFA_MK_BF(reg, pos, len) ((reg<<8)|(pos<<4)|(len-1))
@@ -74,7 +76,7 @@ tfa_calibration_range_check(struct tfa_device *tfa,
 /*
  * static variables
  */
-static DEFINE_MUTEX(device_lock);
+static DEFINE_MUTEX(dev_lock);
 static int devcount; /* total number of devices in use */
 static int set_count; /* check the number of queued devices */
 static int dsp_cal_value[MAX_HANDLES] = {-1, -1, -1, -1};
@@ -85,6 +87,36 @@ int tfa_get_calibration_info(struct tfa_device *tfa, int channel)
 {
 	return tfa->mohm[channel];
 }
+
+#if defined(MPLATFORM)
+static void tfa_wait_cal_work(struct work_struct *work)
+{
+	struct tfa_device *tfa
+		= container_of(work, struct tfa_device, wait_cal_work.work);
+	int i;
+
+	pr_info("%s: enter with dev_idx %d\n", __func__, tfa->dev_idx);
+
+	tfa_wait_cal(tfa);
+
+	for (i = 0; i < MAX_HANDLES; i++) {
+		struct tfa_device *ntfa
+			= tfa98xx_get_tfa_device_from_index(i);
+
+		if (ntfa == NULL)
+			continue;
+
+		if ((ntfa->active_handle != -1)
+			&& (ntfa->active_handle != i))
+			continue;
+
+		/* force UNMUTE after processing calibration */
+		pr_debug("%s: [%d] force UNMUTE after processing calibration\n",
+			__func__, ntfa->dev_idx);
+		tfa_dev_set_state(ntfa, TFA_STATE_UNMUTE, 1);
+	}
+}
+#endif
 
 /* return sign extended tap pattern */
 int tfa_get_tap_pattern(struct tfa_device *tfa)
@@ -296,6 +328,7 @@ void tfa_set_query_info(struct tfa_device *tfa)
 
 	tfa->is_cold = 1;
 	tfa->is_bypass = 0;
+	tfa->is_configured = 0;
 	tfa->reset_mtpex = 0;
 	tfa->stream_state = 0; /* not in use */
 	tfa->prev_samstream = -1; /* not in use */
@@ -306,6 +339,13 @@ void tfa_set_query_info(struct tfa_device *tfa)
 	tfa->temp = 0xffff;
 	tfa->ampgain = -1;
 	tfa->individual_msg = 0;
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+	tfa->skip_dsp_msg = 0;
+#endif
+
+#if defined(MPLATFORM)
+	INIT_DELAYED_WORK(&tfa->wait_cal_work, tfa_wait_cal_work);
+#endif
 
 	/* TODO use the getfeatures() for retrieving the features [artf103523]
 	 * tfa->support_drc = SUPPORT_NOT_SET;
@@ -1779,6 +1819,14 @@ enum tfa98xx_error dsp_msg(struct tfa_device *tfa,
 		return error;
 	}
 
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+	if (tfa->skip_dsp_msg == 1 && tfa->individual_msg == 0) {
+		pr_debug("%s: skip if switching to and from overriding profile\n",
+			__func__);
+		return error;
+	}
+#endif /* TFA_USE_OVERRIDING_PROFILE */
+
 	if (tfa->verbose == 8) {
 		pr_info("%s: skip dsp_msg(algorithm bypass) if verbose is 8\n",
 			__func__);
@@ -2138,9 +2186,10 @@ enum tfa98xx_error dsp_msg_read(struct tfa_device *tfa,
 enum tfa98xx_error reg_read(struct tfa_device *tfa,
 	unsigned char subaddress, unsigned short *value)
 {
-	enum tfa98xx_error error;
+	enum tfa98xx_error error = TFA_ERROR;
 
-	error = (tfa->dev_ops.reg_read)(tfa, subaddress, value);
+	if (tfa->dev_ops.reg_read)
+		error = (tfa->dev_ops.reg_read)(tfa, subaddress, value);
 	if (error != TFA98XX_ERROR_OK)
 		/* Get actual error code from softDSP */
 		error = (enum tfa98xx_error)
@@ -2152,9 +2201,10 @@ enum tfa98xx_error reg_read(struct tfa_device *tfa,
 enum tfa98xx_error reg_write(struct tfa_device *tfa,
 	unsigned char subaddress, unsigned short value)
 {
-	enum tfa98xx_error error;
+	enum tfa98xx_error error = TFA_ERROR;
 
-	error = (tfa->dev_ops.reg_write)(tfa, subaddress, value);
+	if (tfa->dev_ops.reg_write)
+		error = (tfa->dev_ops.reg_write)(tfa, subaddress, value);
 	if (error != TFA98XX_ERROR_OK)
 		/* Get actual error code from softDSP */
 		error = (enum tfa98xx_error)
@@ -2166,9 +2216,10 @@ enum tfa98xx_error reg_write(struct tfa_device *tfa,
 enum tfa98xx_error mem_read(struct tfa_device *tfa,
 	unsigned int start_offset, int num_words, int *p_values)
 {
-	enum tfa98xx_error error;
+	enum tfa98xx_error error = TFA_ERROR;
 
-	error = (tfa->dev_ops.mem_read)(tfa, start_offset, num_words, p_values);
+	if (tfa->dev_ops.mem_read)
+		error = (tfa->dev_ops.mem_read)(tfa, start_offset, num_words, p_values);
 	if (error != TFA98XX_ERROR_OK)
 		/* Get actual error code from softDSP */
 		error = (enum tfa98xx_error)
@@ -2180,9 +2231,10 @@ enum tfa98xx_error mem_read(struct tfa_device *tfa,
 enum tfa98xx_error mem_write(struct tfa_device *tfa,
 	unsigned short address, int value, int memtype)
 {
-	enum tfa98xx_error error;
+	enum tfa98xx_error error = TFA_ERROR;
 
-	error = (tfa->dev_ops.mem_write)(tfa, address, value, memtype);
+	if (tfa->dev_ops.mem_write)
+		error = (tfa->dev_ops.mem_write)(tfa, address, value, memtype);
 	if (error != TFA98XX_ERROR_OK)
 		/* Get actual error code from softDSP */
 		error = (enum tfa98xx_error)
@@ -3265,10 +3317,8 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 	int active_pstream = 0;
 	int mtpex = 0;
 	static int need_cal, is_bypass;
+	int i;
 	char reg_state[50] = {0};
-#if defined(WRITE_CALIBRATION_DATA_TO_MTP)
-	int i, calibration_done = 0;
-#endif
 #if defined(CHECK_CALIBRATION_DATA_RANGE)
 	enum tfa_error ret = tfa_error_ok;
 #endif
@@ -3347,6 +3397,9 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 		err = tfa_calibration_range_check(tfa, channel, value);
 		if (err) {
 			need_cal |= 1;
+			err = TFA98XX_ERROR_OK;
+			pr_info("%s: run calibration because of out-of-range\n",
+				__func__);
 
 			/* reset MTPEX to force calibration */
 			ret = tfa_dev_mtp_set(tfa, TFA_MTP_EX, 0);
@@ -3481,29 +3534,13 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 	if (need_cal == 0)
 		goto set_calibration_values_exit;
 
-	err = tfa_run_wait_calibration(tfa, &calibration_done);
-	if (err != TFA98XX_ERROR_OK || calibration_done == 0) {
-		pr_err("%s: calibration is not done; stop processing\n", __func__);
-		goto set_calibration_values_exit;
-	}
-
-	for (i = 0; i < MAX_HANDLES; i++) {
-		struct tfa_device *ntfa
-			= tfa98xx_get_tfa_device_from_index(i);
-
-		if (ntfa == NULL)
-			continue;
-
-		/* force MUTE after calibration, to set UNMUTE at sync later */
-		pr_debug("%s: [%d] force MUTE after calibration\n",
-			__func__, ntfa->dev_idx);
-		tfa_dev_set_state(ntfa, TFA_STATE_MUTE, 1);
-
-		pr_debug("%s: [%d] process calibration data\n",
-			__func__, ntfa->dev_idx);
-		err = tfa_dsp_get_calibration_impedance(ntfa);
-		PRINT_ASSERT(err);
-	}
+#if !defined(MPLATFORM)
+	err = tfa_wait_cal(tfa);
+#else
+	pr_info("%s: [%d] queue post-process to calibration\n",
+		__func__, tfa->dev_idx);
+	queue_delayed_work(tfa->tfacal_wq, &tfa->wait_cal_work, 0);
+#endif
 #endif /* WRITE_CALIBRATION_DATA_TO_MTP */
 
 set_calibration_values_exit:
@@ -3552,7 +3589,7 @@ enum tfa98xx_error tfa_run_speaker_boost(struct tfa_device *tfa,
 		tfa_cont_device_name(tfa->cnt, tfa->dev_idx),
 		value ? "cold" : "warm");
 
-	/* cold start and not tap profile */
+	/* cold start */
 	if (value) {
 		/* CHECK: only once before buffering */
 		/* at initial device only */
@@ -3589,7 +3626,8 @@ enum tfa98xx_error tfa_run_speaker_boost(struct tfa_device *tfa,
 		&& (tfa->daimap == TFA98XX_DAI_TDM))
 		tfa->sync_iv_delay = 1;
 
-	if (tfa->ext_dsp) {
+	/* cold start */
+	if (value && tfa->ext_dsp) {
 		/* always send the SetRe25 message
 		 * to indicate all messages are send
 		 */
@@ -3954,12 +3992,22 @@ enum tfa98xx_error tfa_run_mute(struct tfa_device *tfa)
 	int status;
 	int tries = 0;
 #if defined(TFA_RAMPDOWN_BEFORE_MUTE)
-	int i = 0;
+	int i = 0, cur_ampe;
 
-	for (i = 0; i < RAMPDOWN_MAX; i++) {
-		tfa_gain_rampdown(tfa, i, RAMPDOWN_MAX);
-		msleep_interruptible(1);
-	}
+	cur_ampe = TFA_GET_BF(tfa, AMPE);
+	if (cur_ampe == 0)
+		tfa_gain_rampdown(tfa, 0, -1);
+	else
+		for (i = 0; i < RAMPDOWN_MAX; i++) {
+			err = tfa_gain_rampdown(tfa, i, RAMPDOWN_MAX);
+			if (err == TFA98XX_ERROR_OTHER)
+				break;
+			/*
+			 * practically, msleep takes 20 msec
+			 * need to use usleep_range if it works
+			 */
+			msleep_interruptible(1);
+		}
 #endif /* TFA_RAMPDOWN_BEFORE_MUTE */
 
 	/* signal the TFA98XX to mute  */
@@ -4029,11 +4077,15 @@ enum tfa98xx_error tfa_gain_rampdown(struct tfa_device *tfa,
 		if (cur_ampgain <= 0) {
 			pr_debug("%s: ampgain is already rampdown (%d)\n",
 				__func__, cur_ampgain);
-			return err;
+			return TFA98XX_ERROR_OTHER;
 		}
 		tfa->ampgain = cur_ampgain;
-		pr_debug("%s: ramp down ampgain (%d)\n",
-			__func__, tfa->ampgain);
+		if (count < 0)
+			pr_debug("%s: direct drop ampgain (%d to 0)\n",
+				__func__, tfa->ampgain);
+		else
+			pr_debug("%s: ramp down ampgain (%d)\n",
+				__func__, tfa->ampgain);
 	}
 
 	if (tfa->ampgain == -1) {
@@ -4042,8 +4094,11 @@ enum tfa98xx_error tfa_gain_rampdown(struct tfa_device *tfa,
 	}
 
 	/* ramp down amplifier gain for "count" msec */
-	err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN,
-		tfa->ampgain * (count - step - 1) / count);
+	if (count < 0) /* direct set */
+		err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN, 0);
+	else /* stepwise set */
+		err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN,
+			tfa->ampgain * (count - step - 1) / count);
 	if (err)
 		pr_err("%s: error in setting AMPGAIN\n",
 			__func__);
@@ -4063,21 +4118,28 @@ enum tfa98xx_error tfa_gain_restore(struct tfa_device *tfa,
 		return TFA98XX_ERROR_BAD_PARAMETER;
 	}
 
-	cur_ampgain = tfa_get_bf(tfa, TFA2_BF_AMPGAIN);
-	if ((cur_ampgain == tfa->ampgain)
-		|| (cur_ampgain > 0 && tfa->ampgain == -1)) {
-		pr_debug("%s: ampgain is already restorted (%d; %d)\n",
-			__func__, cur_ampgain, tfa->ampgain);
-		return err;
+	if (step == 0) {
+		cur_ampgain = tfa_get_bf(tfa, TFA2_BF_AMPGAIN);
+		if ((cur_ampgain == tfa->ampgain)
+			|| (cur_ampgain > 0 && tfa->ampgain == -1)) {
+			pr_debug("%s: ampgain is already restorted (%d; %d)\n",
+				__func__, cur_ampgain, tfa->ampgain);
+			return TFA98XX_ERROR_OTHER;
+		}
+		if (count < 0)
+			pr_debug("%s: direct set ampgain (0 to %d)\n",
+				__func__, tfa->ampgain);
+		else
+			pr_debug("%s: restore ampgain (%d)\n",
+				__func__, tfa->ampgain);
 	}
 
-	/* restore amplifier gain */
-	if (step + 1 == count)
-		pr_debug("%s: restore ampgain (%d)\n",
-			__func__, tfa->ampgain);
 	/* ramp up amplifier gain for "count" msec */
-	err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN,
-		tfa->ampgain * (step + 1) / count);
+	if (count < 0) /* direct set */
+		err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN, tfa->ampgain);
+	else /* stepwise set */
+		err = tfa_set_bf(tfa, TFA2_BF_AMPGAIN,
+			tfa->ampgain * (step + 1) / count);
 	if (err)
 		pr_err("%s: error in setting AMPGAIN\n",
 			__func__);
@@ -4107,6 +4169,45 @@ static void individual_calibration_results(struct tfa_device *tfa)
 
 	TFA_SET_BF_VOLATILE(tfa, AMPINSEL, 0); /* Set amplifier input to TDM */
 	TFA_SET_BF_VOLATILE(tfa, SBSL, 1);
+}
+
+enum tfa98xx_error tfa_wait_cal(struct tfa_device *tfa)
+{
+	enum tfa98xx_error err = TFA98XX_ERROR_OK;
+#if defined(WRITE_CALIBRATION_DATA_TO_MTP)
+	int i, calibration_done = 0;
+
+	pr_info("%s: [%d] triggered\n",
+		__func__, tfa->dev_idx);
+
+	err = tfa_run_wait_calibration(tfa, &calibration_done);
+	if (err != TFA98XX_ERROR_OK || calibration_done == 0) {
+		pr_err("%s: calibration is not done; stop processing\n", __func__);
+		return err;
+	}
+
+	for (i = 0; i < MAX_HANDLES; i++) {
+		struct tfa_device *ntfa
+			= tfa98xx_get_tfa_device_from_index(i);
+
+		if (ntfa == NULL)
+			continue;
+
+#if !defined(MPLATFORM)
+		/* force MUTE after calibration, to set UNMUTE at sync later */
+		pr_debug("%s: [%d] force MUTE after calibration\n",
+			__func__, ntfa->dev_idx);
+		tfa_dev_set_state(ntfa, TFA_STATE_MUTE, 1);
+#endif
+
+		pr_debug("%s: [%d] process calibration data\n",
+			__func__, ntfa->dev_idx);
+		err = tfa_dsp_get_calibration_impedance(ntfa);
+		PRINT_ASSERT(err);
+	}
+#endif
+
+	return err;
 }
 
 /*
@@ -4327,12 +4428,22 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 #if defined(TFA_RAMPDOWN_BEFORE_MUTE)
 	/* restore amplifier gain, if it's touched before */
 	if (tfa->ampgain != -1) {
-		int i = 0;
+		int i = 0, cur_ampe;
 
-		for (i = 0; i < RAMPDOWN_MAX; i++) {
-			tfa_gain_restore(tfa, i, RAMPDOWN_MAX);
-			msleep_interruptible(1);
-		}
+		cur_ampe = TFA_GET_BF(tfa, AMPE);
+		if (cur_ampe == 0)
+			tfa_gain_restore(tfa, 0, -1);
+		else
+			for (i = 0; i < RAMPDOWN_MAX; i++) {
+				err = tfa_gain_restore(tfa, i, RAMPDOWN_MAX);
+				if (err == TFA98XX_ERROR_OTHER)
+					break;
+				/*
+				 * practically, msleep takes 20 msec
+				 * need to use usleep_range if it works
+				 */
+				msleep_interruptible(1);
+			}
 	}
 	tfa->ampgain = -1;
 #endif /* TFA_RAMPDOWN_BEFORE_MUTE */
@@ -4372,6 +4483,17 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 	pr_debug("Starting device [%s]\n",
 		tfa_cont_device_name(tfa->cnt, tfa->dev_idx));
 
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+	tfa->skip_dsp_msg = 0;
+	if (tfa->is_configured
+		&& (tfa_cont_is_overriding_profile(tfa, active_profile)
+		|| tfa_cont_is_overriding_profile(tfa, next_profile)) {
+		pr_info("%s: void configuring TFADSP [%d:%d]\n",
+			__func__, active_profile, next_profile);
+		tfa->skip_dsp_msg = 1;
+	}
+#endif /* TFA_USE_OVERRIDING_PROFILE */
+
 	err = show_current_state(tfa);
 
 	if (tfa->tfa_family == 1) {/* TODO move this to ini file */
@@ -4381,7 +4503,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 			goto error_exit;
 	}
 
-	mutex_lock(&device_lock);
+	mutex_lock(&dev_lock);
 	if (tfa->bus != 0) {/* non i2c  */
 #ifndef __KERNEL__
 		tfadsp_fw_start(tfa, next_profile, vstep);
@@ -4397,7 +4519,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 		/* Check if we need coldstart or ACS is set */
 		err = tfa_run_speaker_boost(tfa, 0, next_profile);
 		if (err != TFA98XX_ERROR_OK) {
-			mutex_unlock(&device_lock);
+			mutex_unlock(&dev_lock);
 			goto error_exit;
 		}
 
@@ -4425,20 +4547,33 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 		/* Go to the Operating state */
 		tfa_state = tfa_dev_get_state(tfa);
 		if (tfa_state == TFA_STATE_OPERATING) {
+			pr_info("%s: skip setting state to OPERATING (%d)\n",
+				__func__, tfa_state);
 			if (tfa_state_before == TFA_STATE_OPERATING) {
-				pr_info("%s: skip setting state to OPERATING (%d); already active\n",
-					__func__, tfa_state);
+				pr_debug("%s: device already active\n", __func__);
 			} else {
-				pr_info("%s: skip setting state to OPERATING (%d) but MUTE\n",
-					__func__, tfa_state);
-				tfa_dev_set_state(tfa, TFA_STATE_MUTE, 0);
+#if defined(TFA_USE_DEVICE_SPECIFIC_CONTROL)
+				if (((set_count % devcount) == 0
+					&& tfa->active_handle == -1)
+					|| (tfa->dev_idx == tfa->active_handle))
+#else
+				if ((set_count % devcount) == 0)
+#endif
+				{
+					pr_debug("%s: skip MUTE at the last device\n",
+						__func__);
+				} else {
+					pr_info("%s: set MUTE until all are ready\n",
+						__func__);
+					tfa_dev_set_state(tfa, TFA_STATE_MUTE, 0);
+				}
 			}
 		} else {
 			tfa_dev_set_state(tfa,
 				TFA_STATE_OPERATING | TFA_STATE_MUTE, 0);
 		}
 	}
-	mutex_unlock(&device_lock);
+	mutex_unlock(&dev_lock);
 
 	if ((stored_profile != -1) && (cal_profile >= 0)) {
 		next_profile = stored_profile;
@@ -4493,18 +4628,18 @@ enum tfa_error tfa_dev_switch_profile(struct tfa_device *tfa,
 	active_profile = tfa_dev_get_swprof(tfa);
 
 	/* Profile switching */
-	mutex_lock(&device_lock);
+	mutex_lock(&dev_lock);
 	if ((next_profile != active_profile && active_profile >= 0)) {
 		tfa->is_bypass = 1; /* reset beforehand */
 		pr_debug("%s: switch profile from %d to %d\n",
 			__func__, active_profile, next_profile);
 		err = tfa_cont_write_profile(tfa, next_profile, vstep);
 		if (err != TFA98XX_ERROR_OK) {
-			mutex_unlock(&device_lock);
+			mutex_unlock(&dev_lock);
 			return err;
 		}
 	}
-	mutex_unlock(&device_lock);
+	mutex_unlock(&dev_lock);
 
 	/* If the profile contains the .standby suffix go
 	 * to powerdown else we should be in operating state
@@ -4549,6 +4684,10 @@ enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 
 	/* mute */
 	tfa_run_mute(tfa);
+
+#if defined(MPLATFORM)
+	cancel_delayed_work_sync(&tfa->wait_cal_work);
+#endif
 
 	/* Make sure internal oscillator is not running
 	 * for DSP devices (non-dsp and max1 this is no-op)
@@ -5661,7 +5800,7 @@ enum tfa98xx_error tfa_status(struct tfa_device *tfa)
 }
 
 /* instance for TFA9874 & TFA9878 */
-#if defined(USE_TFA9874) || defined (USE_TFA9878)
+#if defined(USE_TFA9874) || defined(USE_TFA9878)
 enum tfa98xx_error tfa7478_status(struct tfa_device *tfa)
 {
 	int value;
@@ -5870,10 +6009,17 @@ int tfa_ext_event_handler(struct tfa_device *tfa,
 #define UPPER_LIMIT_CAL_S_N0A 32000
 #define LOWER_LIMIT_CAL_N1A 0
 #define UPPER_LIMIT_CAL_N1A 32000
-#define LOWER_LIMIT_CAL_P_N1A 6000 // Top
+#if defined(CONFIG_MACH_SDM845_CAYMANSLM)
+#define LOWER_LIMIT_CAL_P_N1A 6100 // Top
 #define UPPER_LIMIT_CAL_P_N1A 7400 // Top
-#define LOWER_LIMIT_CAL_S_N1A 5500 // Bottom
-#define UPPER_LIMIT_CAL_S_N1A 6700 // Bottom
+#define LOWER_LIMIT_CAL_S_N1A 5400 // Bottom
+#define UPPER_LIMIT_CAL_S_N1A 7000 // Bottom
+#else
+#define LOWER_LIMIT_CAL_P_N1A 0 // Top
+#define UPPER_LIMIT_CAL_P_N1A 32000 // Top
+#define LOWER_LIMIT_CAL_S_N1A 0 // Bottom
+#define UPPER_LIMIT_CAL_S_N1A 32000 // Bottom
+#endif
 
 static enum tfa98xx_error
 tfa_calibration_range_check(struct tfa_device *tfa,

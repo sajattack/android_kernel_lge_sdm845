@@ -1,7 +1,7 @@
 ifeq ($(CONFIG_SND_SOC_TFA9878), y)
 # NXP audio amplifier - TFA9878
 
-TFA_DEBUG                =1
+#TFA_DEBUG                =1
 TFADSP_DEBUG             =1
 TFA_VERSION              =tfa9878
 TFADSP_32BITS            =1
@@ -14,8 +14,9 @@ TFA_VOID_APIV_IN_FILE    =1
 TFA_SET_EXT_INTERNALLY   =1
 TFA_RAMPDOWN_BEFORE_MUTE =1
 #TFA_MUTE_DURING_SWITCHING_PROFILE=1
+TFA_RECONFIG_WITHOUT_RESET =1
 TFA_SRC_DIR              =/asoc/codecs/$(TFA_VERSION)
-TFA98XX_FLAGS           := -DUSE_TFA9878
+TFA98XX_FLAGS           := -DUSE_TFA9878 -DQPLATFORM
 
 # cc flags
 #ccflags-y               := -DDEBUG
@@ -56,6 +57,9 @@ ccflags-y               += -DTFA_RAMPDOWN_BEFORE_MUTE
 endif
 ifdef TFA_MUTE_DURING_SWITCHING_PROFILE
 ccflags-y               += -DTFA_MUTE_DURING_SWITCHING_PROFILE
+endif
+ifdef TFA_RECONFIG_WITHOUT_RESET
+ccflags-y               += -DTFA_RECONFIG_WITHOUT_RESET
 endif
 
 # objs

@@ -178,6 +178,7 @@ struct tfa_device {
 	int spkr_damaged; /* check if speaker is damaged */
 	int is_cold; /* respond to MANSTATE, before tfa_run_speaker_boost */
 	int is_bypass; /* respond to vstep in profile, before sending calibration data */
+	int is_configured; /* respond to DSP state, whether TFADSP is loaded */
 	int reset_mtpex; /* suspended resetting MTPEX, if it's called when not active */
 	int stream_state; /* b0: pstream (Rx), b1: cstream (Tx), b2: samstream (SaaM) */
 	int prev_samstream;
@@ -187,11 +188,18 @@ struct tfa_device {
 #endif
 	int ampgain;
 	int individual_msg;
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+	int skip_dsp_msg;
+#endif
 #if defined(TFADSP_DSP_BUFFER_POOL)
 	struct tfa98xx_buffer_pool buf_pool[POOL_MAX_INDEX];
 #endif
 #if defined(TFA_USE_WAITQUEUE_SEQ)
 	wait_queue_head_t waitq_seq;
+#endif
+#if defined(MPLATFORM)
+	struct workqueue_struct *tfacal_wq;
+	struct delayed_work wait_cal_work;
 #endif
 };
 
@@ -343,14 +351,14 @@ enum tfa98xx_error tfa_get_fw_api_version(struct tfa_device *tfa,
 	unsigned char *pfw_version);
 
 #if defined(TFA_RAMPDOWN_BEFORE_MUTE)
-#define RAMPDOWN_MAX 3
+#define RAMPDOWN_MAX 2 /* 5 or higher if usleep_range works */
 enum tfa98xx_error tfa_gain_rampdown(struct tfa_device *tfa,
 	int step, int count);
 enum tfa98xx_error tfa_gain_restore(struct tfa_device *tfa,
 	int step, int count);
 #endif
 
-#ifdef MPLATFORM
+#if defined(MPLATFORM)
 enum tfa98xx_error ipi_tfadsp_write(struct tfa_device *tfa,
 	int length, const char *buf);
 enum tfa98xx_error ipi_tfadsp_read(struct tfa_device *tfa,

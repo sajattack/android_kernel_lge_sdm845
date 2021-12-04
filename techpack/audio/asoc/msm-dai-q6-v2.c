@@ -9,6 +9,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -4473,10 +4474,14 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 		.playback = {
 			.stream_name = "Tertiary MI2S Playback",
 			.aif_name = "TERT_MI2S_RX",
-			.rates = SNDRV_PCM_RATE_8000_192000| SNDRV_PCM_RATE_384000,
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_11025 |
+				 SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_22050 |
+				 SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 |
+				 SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000 |
+				 SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.rate_min =     8000,
-			.rate_max =     384000,
+			.rate_max =     192000,
 		},
 		.capture = {
 			.stream_name = "Tertiary MI2S Capture",

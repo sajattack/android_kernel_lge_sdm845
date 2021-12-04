@@ -77,6 +77,35 @@ static int32_t lge_dts_param_id[LGE_DTS_PARAM_MAX] = {
 	0x1000F027
 };
 #endif
+#ifdef CONFIG_SND_LGE_AIS
+#include "../asoc/lge_dsp_sound_ais.h"
+#define APPI_LGE_SOUND_AIS_MODULE_ID            0x1000F010
+static int32_t lge_ais_param_id[LGE_AIS_PARAM_MAX] = {
+	0x1000F011,
+	0x1000F012,
+	0x1000F013,
+	0x1000F014,
+	0x1000F015,
+	0x1000F016,
+	0x1000F017,
+	0x1000F018,
+	0x1000F019,
+	0x1000F01A,
+	0x1000F01B,
+	0x1000F01C,
+	0x1000F01D,
+	0x1000F01E,
+	0x1000F01F,
+	0x1000F020,
+	0x1000F021,
+	0x1000F024,
+	0x1000F025,
+	0x1000F026,
+	0x1000F022,
+	0x1000F023,
+	0x1000F027
+};
+#endif
 
 #define TRUE        0x01
 #define FALSE       0x00
@@ -2773,7 +2802,7 @@ static int __q6asm_open_read(struct audio_client *ac,
 		open.mode_flags |= ASM_LEGACY_STREAM_SESSION <<
 			ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_READ;
 	}
-#if defined(CONFIG_SND_LGE_MABL) || defined(CONFIG_SND_LGE_DTS)
+#if defined(CONFIG_SND_LGE_MABL) || defined(CONFIG_SND_LGE_DTS) || defined(CONFIG_SND_LGE_AIS)
         if (open.preprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT_LGE ||
                 open.preprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_OFFLOAD_LGE)
                 open.preprocopo_id = ASM_STREAM_POSTPROCOPO_ID_DEFAULT;
@@ -3296,7 +3325,7 @@ static int __q6asm_open_read_write(struct audio_client *ac, uint32_t rd_format,
 	ac->topology = open.postprocopo_id;
 	ac->app_type = cal_info.app_type;
 
-#if defined(CONFIG_SND_LGE_MABL) || defined(CONFIG_SND_LGE_DTS)
+#if defined(CONFIG_SND_LGE_MABL) || defined(CONFIG_SND_LGE_DTS) || defined(CONFIG_SND_LGE_AIS)
         if (open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT_LGE ||
                 open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_OFFLOAD_LGE)
                 open.postprocopo_id = ASM_STREAM_POSTPROCOPO_ID_DEFAULT;
@@ -8517,7 +8546,75 @@ fail_cmd:
 
 
 #endif
+#ifdef CONFIG_SND_LGE_AIS
+int q6asm_set_lge_ais_param(struct audio_client *ac, int param_id, int val)
+{
+	struct asm_lge_ais_param lge_ais_param;
+	int sz = 0;
+	int rc	= 0;
 
+	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
+	pr_debug("%s: ais param: id = %d value = %d \n", __func__, param_id, val);
+	pr_debug("+++++++++++++++++++++++++++++++++++++++++++++\n");
+
+	if (!ac || ac->apr == NULL) {
+			pr_err("%s: APR handle NULL\n", __func__);
+			rc = -EINVAL;
+			goto fail_cmd;
+	}
+
+	sz = sizeof(struct asm_lge_ais_param);
+	q6asm_add_hdr_async(ac, &lge_ais_param.hdr, sz, TRUE);
+	atomic_set(&ac->cmd_state_pp, -1);
+
+	lge_ais_param.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
+	lge_ais_param.param.data_payload_addr_lsw = 0;
+	lge_ais_param.param.data_payload_addr_msw = 0;
+
+	lge_ais_param.param.mem_map_handle = 0;
+	lge_ais_param.param.data_payload_size = sizeof(lge_ais_param) -
+							sizeof(lge_ais_param.hdr) - sizeof(lge_ais_param.param);
+
+	lge_ais_param.data.module_id = APPI_LGE_SOUND_AIS_MODULE_ID;
+	lge_ais_param.data.param_id = lge_ais_param_id[param_id];
+	lge_ais_param.data.param_size = lge_ais_param.param.data_payload_size - sizeof(lge_ais_param.data);
+	lge_ais_param.data.reserved = 0;
+	lge_ais_param.value = val;
+
+	rc = apr_send_pkt(ac->apr, (uint32_t *) &lge_ais_param);
+	if (rc < 0) {
+			pr_err("%s: set-params send failed paramid[0x%x]\n", __func__,
+											lge_ais_param.data.param_id);
+			rc = -EINVAL;
+			goto fail_cmd;
+	}
+
+	rc = wait_event_timeout(ac->cmd_wait,
+					(atomic_read(&ac->cmd_state_pp) >= 0), 5*HZ);
+
+	if (!rc) {
+			pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
+											lge_ais_param.data.param_id);
+			rc = -ETIMEDOUT;
+			goto fail_cmd;
+	}
+	if (atomic_read(&ac->cmd_state_pp) > 0) {
+			pr_err("%s: DSP returned error[%s] set-params paramid[0x%x]\n",
+							__func__, adsp_err_get_err_str(
+							atomic_read(&ac->cmd_state_pp)),
+							lge_ais_param.data.param_id);
+			rc = adsp_err_get_lnx_err_code(
+							atomic_read(&ac->cmd_state_pp));
+			goto fail_cmd;
+	}
+	rc = 0;
+
+fail_cmd:
+        return rc;
+}
+
+
+#endif
 
 static int __q6asm_read(struct audio_client *ac, bool is_custom_len_reqd,
 			int len)
@@ -10111,9 +10208,15 @@ int q6asm_send_cal(struct audio_client *ac)
 
 	mutex_lock(&cal_data[ASM_AUDSTRM_CAL]->lock);
 	cal_block = cal_utils_get_only_cal_block(cal_data[ASM_AUDSTRM_CAL]);
-	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
+	if (cal_block == NULL) {
+		pr_err("%s: cal_block is NULL\n",
+			__func__);
+		goto unlock;
+	}
+
+	if (cal_utils_is_cal_stale(cal_block)) {
 		rc = 0; /* not error case */
-		pr_err("%s: cal_block is NULL or stale\n",
+		pr_err("%s: cal_block is stale\n",
 			__func__);
 		goto unlock;
 	}

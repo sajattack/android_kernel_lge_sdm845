@@ -167,6 +167,15 @@ int tfa_cont_is_tap_profile(struct tfa_device *tfa, int prof_idx);
 int tfa_cont_is_dev_specific_profile(struct tfa_container *cnt,
 	int dev_idx, int prof_idx);
 
+#if defined(TFA_USE_OVERRIDING_PROFILE)
+/**
+ * Is the profile to intend overriding ?
+ * @param prof_idx the index of the profile
+ * @return 1 if the profile matches or 0 if not
+ */
+int tfa_cont_is_overriding_profile(struct tfa_device *tfa, int prof_idx);
+#endif /* TFA_USE_OVERRIDING_PROFILE */
+
 /**
  * Get the name of the profile at certain index for a device in the container file
  * @param cnt the pointer to the container struct
