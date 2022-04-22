@@ -114,7 +114,6 @@ static unsigned int get_min_freq(struct cpufreq_policy *policy)
 		freq = cpu_freq_min_little;
 	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
 		freq = cpu_freq_min_big;
-
 	return max(freq, policy->cpuinfo.min_freq);
 }
 
@@ -126,7 +125,6 @@ static unsigned int get_idle_freq(struct cpufreq_policy *policy)
 		freq = cpu_freq_idle_little;
 	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
 		freq = cpu_freq_idle_big;
-
 	return max(freq, policy->cpuinfo.min_freq);
 }
 
@@ -156,8 +154,10 @@ static void __cpu_input_boost_kick(struct boost_drv *b)
 	if (dynamic_sched_boost)
 		sched_set_boost(2);
 	if (!mod_delayed_work(system_unbound_wq, &b->input_unboost,
-			      msecs_to_jiffies(input_boost_duration)))
+			      msecs_to_jiffies(input_boost_duration))) {
+		set_bit(INPUT_BOOST, &b->state);
 		wake_up(&b->boost_waitq);
+	}
 }
 
 void cpu_input_boost_kick(void)
@@ -170,12 +170,12 @@ void cpu_input_boost_kick(void)
 static void __cpu_input_boost_kick_max(struct boost_drv *b,
 				       unsigned int duration_ms)
 {
-	unsigned long boost_jiffies = msecs_to_jiffies(duration_ms);
-	unsigned long curr_expires, new_expires;
+	unsigned long boost_jiffies, curr_expires, new_expires;
 
 	if (test_bit(SCREEN_OFF, &b->state))
 		return;
 
+	boost_jiffies = msecs_to_jiffies(duration_ms);
 	do {
 		curr_expires = atomic_long_read(&b->max_boost_expires);
 		new_expires = jiffies + boost_jiffies;
@@ -188,8 +188,11 @@ static void __cpu_input_boost_kick_max(struct boost_drv *b,
 
 	set_bit(MAX_BOOST, &b->state);
 	if (!mod_delayed_work(system_unbound_wq, &b->max_unboost,
-			      boost_jiffies))
+			      boost_jiffies)) {
+		/* Set the bit again in case we raced with the unboost worker */
+		set_bit(MAX_BOOST, &b->state);
 		wake_up(&b->boost_waitq);
+	}
 }
 
 void cpu_input_boost_kick_max(unsigned int duration_ms)
@@ -233,15 +236,17 @@ static int cpu_boost_thread(void *data)
 		bool should_stop = false;
 		unsigned long curr_state;
 
-		wait_event(b->boost_waitq,
+		wait_event_interruptible(b->boost_waitq,
 			(curr_state = READ_ONCE(b->state)) != old_state ||
 			(should_stop = kthread_should_stop()));
 
 		if (should_stop)
 			break;
 
-		old_state = curr_state;
-		update_online_cpu_policy();
+		if (old_state != curr_state) {
+		        update_online_cpu_policy();
+			old_state = curr_state;
+		}
 	}
 
 	return 0;
