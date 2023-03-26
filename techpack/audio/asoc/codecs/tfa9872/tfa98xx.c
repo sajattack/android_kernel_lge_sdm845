@@ -1470,11 +1470,9 @@ static int tfa98xx_dbgfs_pga_gain_get(void *data, u64 *val)
 {
 	struct i2c_client *i2c = (struct i2c_client *)data;
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
-	int err;
 	unsigned int value;
 
 /*	*val = TFA_GET_BF(tfa98xx->handle, SAAMGAIN);*/
-	err = regmap_read(tfa98xx->regmap, TFA98XX_CTRL_SAAM_PGA, &value);
 	*val = (value & TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_MSK) >>
 				TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_POS;
 	return 0;
@@ -1530,26 +1528,6 @@ DEFINE_SIMPLE_ATTRIBUTE(tfa98xx_dbgfs_reg_##__reg##_fops, \
 	debugfs_create_file(TOSTRING(__reg) "-" TOSTRING(__name),	\
 					S_IRUGO|S_IWUSR|S_IWGRP, dbg_reg_dir,	\
 					i2c, &tfa98xx_dbgfs_reg_##__reg##_fops);
-
-TFA98XX_DEBUGFS_REG_SET(00);
-TFA98XX_DEBUGFS_REG_SET(01);
-TFA98XX_DEBUGFS_REG_SET(02);
-TFA98XX_DEBUGFS_REG_SET(03);
-TFA98XX_DEBUGFS_REG_SET(04);
-TFA98XX_DEBUGFS_REG_SET(05);
-TFA98XX_DEBUGFS_REG_SET(06);
-TFA98XX_DEBUGFS_REG_SET(07);
-TFA98XX_DEBUGFS_REG_SET(08);
-TFA98XX_DEBUGFS_REG_SET(09);
-TFA98XX_DEBUGFS_REG_SET(0A);
-TFA98XX_DEBUGFS_REG_SET(0B);
-TFA98XX_DEBUGFS_REG_SET(0F);
-TFA98XX_DEBUGFS_REG_SET(10);
-TFA98XX_DEBUGFS_REG_SET(11);
-TFA98XX_DEBUGFS_REG_SET(12);
-TFA98XX_DEBUGFS_REG_SET(13);
-TFA98XX_DEBUGFS_REG_SET(22);
-TFA98XX_DEBUGFS_REG_SET(25);
 
 DEFINE_SIMPLE_ATTRIBUTE(tfa98xx_dbgfs_calib_otc_fops,
 			tfa98xx_dbgfs_otc_get,
@@ -1627,7 +1605,6 @@ static const struct file_operations tfa98xx_dbgfs_spkr_damaged_fops = {
 static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 {
 	char name[50];
-	struct dentry *dbg_reg_dir;
 
 	scnprintf(name, MAX_CONTROL_NAME, "%s-%x", i2c->name, i2c->addr);
 	tfa98xx->dbg_dir = debugfs_create_dir(name, NULL);
@@ -1657,30 +1634,6 @@ static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 #endif
 	debugfs_create_file("spkr-state", S_IRUGO, tfa98xx->dbg_dir,
 						i2c, &tfa98xx_dbgfs_spkr_damaged_fops);
-
-	/* Direct registers access */
-	if (tfa98xx->flags & TFA98XX_FLAG_TFA9890_FAM_DEV) {
-		dbg_reg_dir = debugfs_create_dir("regs", tfa98xx->dbg_dir);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(00, STATUS);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(01, BATTERYVOLTAGE);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(02, TEMPERATURE);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(03, REVISIONNUMBER);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(04, I2SREG);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(05, BAT_PROT);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(06, AUDIO_CTR);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(07, DCDCBOOST);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(08, SPKR_CALIBRATION);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(09, SYS_CTRL);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(0A, I2S_SEL_REG);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(0B, HIDDEN_MTP_KEY2);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(0F, INTERRUPT_REG);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(10, PDM_CTRL);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(11, PDM_OUT_CTRL);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(12, PDM_DS4_R);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(13, PDM_DS4_L);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(22, CTRL_SAAM_PGA);
-		TFA98XX_DEBUGFS_REG_CREATE_FILE(25, MISC_CTRL);
-	}
 
 	if (tfa98xx->flags & TFA98XX_FLAG_SAAM_AVAILABLE) {
 		dev_dbg(tfa98xx->dev, "Adding pga_gain debug interface\n");
