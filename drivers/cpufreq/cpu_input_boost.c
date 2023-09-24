@@ -94,10 +94,10 @@ static unsigned int get_max_boost_freq(struct cpufreq_policy *policy)
 	unsigned int freq;
 
 	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
-		freq = max(max_boost_freq_little, cpu_freq_min_little);
+		freq = max_boost_freq_little;
 	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
-		freq = max(max_boost_freq_big, cpu_freq_min_big);
-		return min(freq, policy->max);
+		freq = input_boost_freq_big;
+	return min(freq, policy->max);
 }
 
 static unsigned int get_min_freq(struct cpufreq_policy *policy)
