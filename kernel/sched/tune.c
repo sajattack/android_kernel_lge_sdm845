@@ -211,9 +211,6 @@ struct schedtune {
 	/* Hint to bias scheduling of tasks on that SchedTune CGroup
 	 * towards idle CPUs */
 	int prefer_idle;
-
-	/* Hint to use iowait boost */
-	bool prefer_iowait;
 };
 
 static inline struct schedtune *css_st(struct cgroup_subsys_state *css)
@@ -240,7 +237,8 @@ static inline struct schedtune *parent_st(struct schedtune *st)
  * By default, system-wide boosting is disabled, i.e. no boosting is applied
  * to tasks which are not into a child control group.
  */
-static struct schedtune root_schedtune = {
+static struct schedtune
+root_schedtune = {
 	.boost	= 0,
 #ifdef CONFIG_SCHED_WALT
 	.sched_boost_no_override = false,
@@ -251,7 +249,6 @@ static struct schedtune root_schedtune = {
 	.perf_boost_idx = 0,
 	.perf_constrain_idx = 0,
 	.prefer_idle = 0,
-	.prefer_iowait = 1,
 };
 
 int
@@ -900,11 +897,6 @@ static int prefer_idle_write_wrapper(struct cgroup_subsys_state *css,
 		.name = "prefer_idle",
 		.read_u64 = prefer_idle_read,
 		.write_u64 = prefer_idle_write_wrapper,
-	},
-	{
-		.name = "prefer_iowait",
-		.read_u64 = prefer_iowait_read,
-		.write_u64 = prefer_iowait_write,
 	},
 	{ }	/* terminate */
 };
