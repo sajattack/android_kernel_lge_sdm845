@@ -470,7 +470,7 @@
 	};
 
 	chosen {
-		bootargs = "noirqdebug cgroup.memory=nokmem,nosocket nosoftlockup mce=ignore_ce";
+		bootargs = "noirqdebug cgroup.memory=nokmem,nosocket";
 	};
 
 	soc: soc { };
