@@ -61,7 +61,7 @@ static bool scm_deassert_ps_hold_supported;
 static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 static void scm_disable_sdi(void);
-static bool force_warm_reboot;
+static bool force_warm_reboot = true;
 #ifndef CONFIG_LGE_HANDLE_PANIC
 
 #ifdef CONFIG_QCOM_DLOAD_MODE
@@ -991,8 +991,6 @@ skip_sysfs_create:
 	if (!download_mode)
 		lge_panic_handler_fb_cleanup();
 #endif
-	force_warm_reboot = of_property_read_bool(dev->of_node,
-						"qcom,force-warm-reboot");
 
 	return 0;
 
