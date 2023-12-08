@@ -570,11 +570,8 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		ERRATA_MIDR_RANGE_LIST(arm64_bp_harden_smccc_cpus),
 		.cpu_enable = enable_smccc_arch_workaround_1,
 	},
-#endif
-#ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
 	{
 		.capability = ARM64_HARDEN_BRANCH_PREDICTOR,
-		ERRATA_MIDR_ALL_VERSIONS(MIDR_KRYO3G),
 		ERRATA_MIDR_RANGE_LIST(arm64_bp_harden_smccc_cpus_qti),
 #ifdef CONFIG_PSCI_BP_HARDENING
 		.cpu_enable = enable_psci_bp_hardening,
@@ -582,16 +579,7 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		.cpu_enable = enable_smccc_arch_workaround_1,
 #endif
 	},
-	{
-		.capability = ARM64_HARDEN_BRANCH_PREDICTOR,
-		ERRATA_MIDR_ALL_VERSIONS(MIDR_KRYO2XX_GOLD),
-#ifdef CONFIG_PSCI_BP_HARDENING
-		.cpu_enable = enable_psci_bp_hardening,
-#else
-		.cpu_enable = enable_smccc_arch_workaround_1,
 #endif
-	},
-#endif /* CONFIG_HARDEN_BRANCH_PREDICTOR */
 #ifdef CONFIG_ARM64_SSBD
 	{
 		.desc = "Speculative Store Bypass Disable",

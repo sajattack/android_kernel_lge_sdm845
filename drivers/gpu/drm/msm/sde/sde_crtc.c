@@ -42,10 +42,6 @@
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
-#ifdef CONFIG_LGE_PM_PRM
-#include "fbcn/lge_intm.h"
-#endif
-
 struct sde_crtc_custom_events {
 	u32 event;
 	int (*func)(struct drm_crtc *crtc, bool en,
@@ -87,10 +83,7 @@ static struct sde_crtc_custom_events custom_events[] = {
  * Time period for fps calculation in micro seconds.
  * Default value is set to 1 sec.
  */
-#define DEFAULT_FPS_PERIOD_1_SEC	1000000
-#define MAX_FPS_PERIOD_5_SECONDS	5000000
-#define MAX_FRAME_COUNT			1000
-#define MILI_TO_MICRO			1000
+#define CRTC_TIME_PERIOD_CALC_FPS_US	1000000
 
 static inline struct sde_kms *_sde_crtc_get_kms(struct drm_crtc *crtc)
 {
@@ -157,11 +150,8 @@ static void sde_crtc_calc_fps(struct sde_crtc *sde_crtc)
 			sde_crtc->fps_info.last_sampled_time_us);
 	sde_crtc->fps_info.frame_count++;
 
-	if (diff_us >= DEFAULT_FPS_PERIOD_1_SEC) {
-
-		 /* Multiplying with 10 to get fps in floating point */
-		fps = ((u64)sde_crtc->fps_info.frame_count)
-						* DEFAULT_FPS_PERIOD_1_SEC * 10;
+	if (diff_us >= CRTC_TIME_PERIOD_CALC_FPS_US) {
+		fps = ((u64)sde_crtc->fps_info.frame_count) * 10000000;
 		do_div(fps, diff_us);
 		sde_crtc->fps_info.measured_fps = (unsigned int)fps;
 		SDE_DEBUG(" FPS for crtc%d is %d.%d\n",
@@ -170,20 +160,6 @@ static void sde_crtc_calc_fps(struct sde_crtc *sde_crtc)
 		sde_crtc->fps_info.last_sampled_time_us = current_time_us;
 		sde_crtc->fps_info.frame_count = 0;
 	}
-
-	if (!sde_crtc->fps_info.time_buf)
-		return;
-
-	/**
-	 * Array indexing is based on sliding window algorithm.
-	 * sde_crtc->time_buf has a maximum capacity of MAX_FRAME_COUNT
-	 * time slots. As the count increases to MAX_FRAME_COUNT + 1, the
-	 * counter loops around and comes back to the first index to store
-	 * the next ktime.
-	 */
-	sde_crtc->fps_info.time_buf[sde_crtc->fps_info.next_time_index++] =
-								ktime_get();
-	sde_crtc->fps_info.next_time_index %= MAX_FRAME_COUNT;
 }
 
 /**
@@ -680,11 +656,8 @@ static int _sde_debugfs_fps_status_show(struct seq_file *s, void *data)
 	diff_us = (u64)ktime_us_delta(current_time_us,
 			sde_crtc->fps_info.last_sampled_time_us);
 
-	if (diff_us >= DEFAULT_FPS_PERIOD_1_SEC) {
-
-		 /* Multiplying with 10 to get fps in floating point */
-		fps = ((u64)sde_crtc->fps_info.frame_count)
-						* DEFAULT_FPS_PERIOD_1_SEC * 10;
+	if (diff_us >= CRTC_TIME_PERIOD_CALC_FPS_US) {
+		fps = ((u64)sde_crtc->fps_info.frame_count) * 10000000;
 		do_div(fps, diff_us);
 		sde_crtc->fps_info.measured_fps = (unsigned int)fps;
 		sde_crtc->fps_info.last_sampled_time_us = current_time_us;
@@ -709,154 +682,6 @@ static int _sde_debugfs_fps_status(struct inode *inode, struct file *file)
 			inode->i_private);
 }
 
-static ssize_t set_fps_periodicity(struct device *device,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct drm_crtc *crtc;
-	struct sde_crtc *sde_crtc;
-	int res;
-
-	/* Base of the input */
-	int cnt = 10;
-
-	if (!device || !buf) {
-		SDE_ERROR("invalid input param(s)\n");
-		return -EAGAIN;
-	}
-
-	crtc = dev_get_drvdata(device);
-	if (!crtc)
-		return -EINVAL;
-
-	sde_crtc = to_sde_crtc(crtc);
-
-	res = kstrtou32(buf, cnt, &sde_crtc->fps_info.fps_periodic_duration);
-	if (res < 0)
-		return res;
-
-	if (sde_crtc->fps_info.fps_periodic_duration <= 0)
-		sde_crtc->fps_info.fps_periodic_duration =
-						DEFAULT_FPS_PERIOD_1_SEC;
-	else if ((sde_crtc->fps_info.fps_periodic_duration) * MILI_TO_MICRO >
-						MAX_FPS_PERIOD_5_SECONDS)
-		sde_crtc->fps_info.fps_periodic_duration =
-						MAX_FPS_PERIOD_5_SECONDS;
-	else
-		sde_crtc->fps_info.fps_periodic_duration *= MILI_TO_MICRO;
-
-	return count;
-}
-
-static ssize_t fps_periodicity_show(struct device *device,
-		struct device_attribute *attr, char *buf)
-{
-	struct drm_crtc *crtc;
-	struct sde_crtc *sde_crtc;
-
-	if (!device || !buf) {
-		SDE_ERROR("invalid input param(s)\n");
-		return -EAGAIN;
-	}
-
-	crtc = dev_get_drvdata(device);
-	if (!crtc)
-		return -EINVAL;
-
-	sde_crtc = to_sde_crtc(crtc);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n",
-		(sde_crtc->fps_info.fps_periodic_duration)/MILI_TO_MICRO);
-}
-
-static ssize_t measured_fps_show(struct device *device,
-		struct device_attribute *attr, char *buf)
-{
-	struct drm_crtc *crtc;
-	struct sde_crtc *sde_crtc;
-	unsigned int fps_int, fps_decimal;
-	u64 fps = 0, frame_count = 1;
-	ktime_t current_time;
-	int i = 0, current_time_index;
-	u64 diff_us;
-
-	if (!device || !buf) {
-		SDE_ERROR("invalid input param(s)\n");
-		return -EAGAIN;
-	}
-
-	crtc = dev_get_drvdata(device);
-	if (!crtc) {
-		scnprintf(buf, PAGE_SIZE, "fps information not available");
-		return -EINVAL;
-	}
-
-	sde_crtc = to_sde_crtc(crtc);
-
-	if (!sde_crtc->fps_info.time_buf) {
-		scnprintf(buf, PAGE_SIZE,
-				"timebuf null - fps information not available");
-		return -EINVAL;
-	}
-
-	/**
-	 * Whenever the time_index counter comes to zero upon decrementing,
-	 * it is set to the last index since it is the next index that we
-	 * should check for calculating the buftime.
-	 */
-	current_time_index = (sde_crtc->fps_info.next_time_index == 0) ?
-		MAX_FRAME_COUNT - 1 : (sde_crtc->fps_info.next_time_index - 1);
-
-	current_time = ktime_get();
-
-	for (i = 0; i < MAX_FRAME_COUNT; i++) {
-		u64 ptime = (u64)ktime_to_us(current_time);
-		u64 buftime = (u64)ktime_to_us(
-			sde_crtc->fps_info.time_buf[current_time_index]);
-		diff_us = (u64)ktime_us_delta(current_time,
-			sde_crtc->fps_info.time_buf[current_time_index]);
-		if (ptime > buftime && diff_us >= (u64)
-				sde_crtc->fps_info.fps_periodic_duration) {
-
-			/* Multiplying with 10 to get fps in floating point */
-			fps = frame_count * DEFAULT_FPS_PERIOD_1_SEC * 10;
-			do_div(fps, diff_us);
-			sde_crtc->fps_info.measured_fps = (unsigned int)fps;
-			SDE_DEBUG("measured fps: %d\n",
-					sde_crtc->fps_info.measured_fps);
-			break;
-		}
-
-		current_time_index = (current_time_index == 0) ?
-			(MAX_FRAME_COUNT - 1) : (current_time_index - 1);
-		SDE_DEBUG("current time index: %d\n", current_time_index);
-
-		frame_count++;
-	}
-
-	if (i == MAX_FRAME_COUNT) {
-
-		current_time_index = (sde_crtc->fps_info.next_time_index == 0) ?
-		MAX_FRAME_COUNT - 1 : (sde_crtc->fps_info.next_time_index - 1);
-
-		diff_us = (u64)ktime_us_delta(current_time,
-			sde_crtc->fps_info.time_buf[current_time_index]);
-
-		if (diff_us >= sde_crtc->fps_info.fps_periodic_duration) {
-
-			/* Multiplying with 10 to get fps in floating point */
-			fps = (frame_count) * DEFAULT_FPS_PERIOD_1_SEC * 10;
-			do_div(fps, diff_us);
-			sde_crtc->fps_info.measured_fps = (unsigned int)fps;
-		}
-	}
-
-	fps_int = (unsigned int) sde_crtc->fps_info.measured_fps;
-	fps_decimal = do_div(fps_int, 10);
-	return scnprintf(buf, PAGE_SIZE,
-		"fps: %d.%d duration:%d frame_count:%llu", fps_int, fps_decimal,
-			sde_crtc->fps_info.fps_periodic_duration, frame_count);
-}
-
 static ssize_t vsync_event_show(struct device *device,
 	struct device_attribute *attr, char *buf)
 {
@@ -875,13 +700,8 @@ static ssize_t vsync_event_show(struct device *device,
 }
 
 static DEVICE_ATTR_RO(vsync_event);
-static DEVICE_ATTR(measured_fps, 0444, measured_fps_show, NULL);
-static DEVICE_ATTR(fps_periodicity_ms, 0644, fps_periodicity_show,
-							set_fps_periodicity);
 static struct attribute *sde_crtc_dev_attrs[] = {
 	&dev_attr_vsync_event.attr,
-	&dev_attr_measured_fps.attr,
-	&dev_attr_fps_periodicity_ms.attr,
 	NULL
 };
 
@@ -2572,7 +2392,9 @@ static void _sde_crtc_retire_event(struct drm_connector *connector,
 		return;
 	}
 
+	SDE_ATRACE_BEGIN("signal_retire_fence");
 	sde_connector_complete_commit(connector, ts, is_error);
+	SDE_ATRACE_END("signal_retire_fence");
 }
 
 static void sde_crtc_frame_event_work(struct kthread_work *work)
@@ -2605,6 +2427,7 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 		return;
 	}
 	priv = sde_kms->dev->dev_private;
+	SDE_ATRACE_BEGIN("crtc_frame_event");
 
 	SDE_DEBUG("crtc%d event:%u ts:%lld\n", crtc->base.id, fevent->event,
 			ktime_to_ns(fevent->ts));
@@ -2639,9 +2462,11 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RELEASE_FENCE) {
+		SDE_ATRACE_BEGIN("signal_release_fence");
 		sde_fence_signal(&sde_crtc->output_fence, fevent->ts,
 				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
 				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
+		SDE_ATRACE_END("signal_release_fence");
 	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE)
@@ -2657,6 +2482,7 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
 	list_add_tail(&fevent->list, &sde_crtc->frame_event_list);
 	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
+	SDE_ATRACE_END("crtc_frame_event");
 }
 
 void sde_crtc_complete_commit(struct drm_crtc *crtc,
@@ -2673,7 +2499,6 @@ void sde_crtc_complete_commit(struct drm_crtc *crtc,
 	SDE_EVT32_VERBOSE(DRMID(crtc));
 
 	sde_core_perf_crtc_update(crtc, 0, false);
-
 }
 
 /**
@@ -3136,6 +2961,7 @@ static void _sde_crtc_wait_for_fences(struct drm_crtc *crtc)
 	 * if its fence has timed out. Call input fence wait multiple times if
 	 * fence wait is interrupted due to interrupt call.
 	 */
+	SDE_ATRACE_BEGIN("plane_wait_input_fence");
 	drm_atomic_crtc_for_each_plane(plane, crtc) {
 		do {
 			kt_wait = ktime_sub(kt_end, ktime_get());
@@ -3147,6 +2973,7 @@ static void _sde_crtc_wait_for_fences(struct drm_crtc *crtc)
 			rc = sde_plane_wait_input_fence(plane, wait_ms);
 		} while (wait_ms && rc == -ERESTARTSYS);
 	}
+	SDE_ATRACE_END("plane_wait_input_fence");
 }
 
 static void _sde_crtc_setup_mixer_for_encoder(
@@ -3608,6 +3435,7 @@ static int _sde_crtc_commit_kickoff_rot(struct drm_crtc *crtc,
 		cstate->sbuf_cfg.rot_op_mode == SDE_CTL_ROT_OP_MODE_OFFLINE)
 		return 0;
 
+	SDE_ATRACE_BEGIN("crtc_kickoff_rot");
 
 	if (cstate->sbuf_cfg.rot_op_mode != SDE_CTL_ROT_OP_MODE_OFFLINE &&
 			sde_crtc->sbuf_flush_mask_delta) {
@@ -3656,6 +3484,7 @@ static int _sde_crtc_commit_kickoff_rot(struct drm_crtc *crtc,
 	/* save this in sde_crtc for next commit cycle */
 	sde_crtc->sbuf_op_mode_old = cstate->sbuf_cfg.rot_op_mode;
 
+	SDE_ATRACE_END("crtc_kickoff_rot");
 	return rc;
 }
 
@@ -3924,6 +3753,7 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	if (unlikely(!sde_crtc->num_mixers))
 		return;
 
+	SDE_ATRACE_BEGIN("crtc_commit");
 
 	is_error = _sde_crtc_prepare_for_kickoff_rot(dev, crtc);
 
@@ -3961,7 +3791,9 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	}
 	sde_crtc->reset_request = reset_req;
 
+	SDE_ATRACE_BEGIN("flush_event_thread");
 	_sde_crtc_flush_event_thread(crtc);
+	SDE_ATRACE_END("flush_event_thread");
 	sde_crtc_calc_fps(sde_crtc);
 
 	if (atomic_inc_return(&sde_crtc->frame_pending) == 1) {
@@ -3976,11 +3808,6 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	}
 	sde_crtc->play_count++;
 
-#ifdef CONFIG_LGE_PM_PRM
-	if (lge_prm_get_info(LGE_PRM_INFO_FBCN_ENABLED))
-		lge_intv_notify(ktime_get());
-#endif
-
 	/*
 	 * For SYNC inline modes, delay the kick off until after the
 	 * wait for frame done in case the wait times out.
@@ -3991,6 +3818,8 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	if (cstate->sbuf_cfg.rot_op_mode != SDE_CTL_ROT_OP_MODE_INLINE_ASYNC)
 		if (_sde_crtc_commit_kickoff_rot(crtc, cstate))
 			is_error = true;
+
+	sde_vbif_clear_errors(sde_kms);
 
 	if (is_error) {
 		_sde_crtc_remove_pipe_flush(sde_crtc);
@@ -4013,6 +3842,7 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 		spin_unlock_irqrestore(&dev->event_lock, flags);
 	}
 
+	SDE_ATRACE_END("crtc_commit");
 	return;
 }
 
@@ -4794,7 +4624,7 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 		struct drm_crtc_state *state)
 {
 	struct sde_crtc *sde_crtc;
-	struct plane_state pstates[SDE_PSTATES_MAX] __aligned(8);
+	struct plane_state *pstates = NULL;
 	struct sde_crtc_state *cstate;
 
 	const struct drm_plane_state *pstate;
@@ -4803,7 +4633,7 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 
 	int cnt = 0, rc = 0, mixer_width, i, z_pos;
 
-	struct sde_multirect_plane_states multirect_plane[SDE_MULTIRECT_PLANE_MAX] __aligned(8);
+	struct sde_multirect_plane_states *multirect_plane = NULL;
 	int multirect_count = 0;
 	const struct drm_plane_state *pipe_staged[SSPP_MAX];
 	int left_zpos_cnt = 0, right_zpos_cnt = 0;
@@ -4822,8 +4652,16 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 		goto end;
 	}
 
-	memset(pstates, 0, sizeof(pstates));
-	memset(multirect_plane, 0, sizeof(multirect_plane));
+	pstates = kzalloc(SDE_PSTATES_MAX *
+			sizeof(struct plane_state), GFP_KERNEL);
+
+	multirect_plane = kzalloc(SDE_MULTIRECT_PLANE_MAX *
+		sizeof(struct sde_multirect_plane_states), GFP_KERNEL);
+
+	if (!pstates || !multirect_plane) {
+		rc = -ENOMEM;
+		goto end;
+	}
 
 	mode = &state->adjusted_mode;
 	SDE_DEBUG("%s: check", sde_crtc->name);
@@ -5093,6 +4931,8 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 	}
 
 end:
+	kfree(pstates);
+	kfree(multirect_plane);
 	_sde_crtc_rp_free_unused(&cstate->rp);
 	return rc;
 }
@@ -6302,17 +6142,6 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 	INIT_LIST_HEAD(&sde_crtc->rp_head);
 
 	sde_crtc->enabled = false;
-
-	/* Below parameters are for fps calculation for sysfs node */
-	sde_crtc->fps_info.fps_periodic_duration = DEFAULT_FPS_PERIOD_1_SEC;
-	sde_crtc->fps_info.time_buf = kmalloc_array(MAX_FRAME_COUNT,
-			sizeof(sde_crtc->fps_info.time_buf), GFP_KERNEL);
-
-	if (!sde_crtc->fps_info.time_buf)
-		SDE_ERROR("invalid buffer\n");
-	else
-		memset(sde_crtc->fps_info.time_buf, 0,
-			sizeof(*(sde_crtc->fps_info.time_buf)));
 
 	INIT_LIST_HEAD(&sde_crtc->frame_event_list);
 	INIT_LIST_HEAD(&sde_crtc->user_event_list);

@@ -325,9 +325,6 @@ static void touch_panel_reset_work_func(struct work_struct *panel_reset_work)
 	TOUCH_I("Request panel reset !!!\n");
 
 #if defined(CONFIG_LGE_TOUCH_CORE_QCT)
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_RECOVERY_ESD) || IS_ENABLED(CONFIG_LGE_TOUCH_PANEL_GLOBAL_RESET)
-	lge_mdss_report_panel_dead();
-#endif
 #endif
 
 #if defined(CONFIG_LGE_TOUCH_CORE_MTK)
@@ -929,7 +926,7 @@ static int touch_init_notify(struct touch_core_data *ts)
 	}
 
 	ts->display_notif.notifier_call = display_notifier_callback;
-	ret = lge_panel_notifier_register_client(&ts->display_notif);
+	//ret = lge_panel_notifier_register_client(&ts->display_notif);
 
 	if (ret < 0) {
 		TOUCH_E("failed to regiseter lge_panel_notify callback\n");

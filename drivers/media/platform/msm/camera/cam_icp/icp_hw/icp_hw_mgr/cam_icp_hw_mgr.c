@@ -1403,26 +1403,6 @@ static int cam_icp_mgr_process_cmd(void *priv, void *data)
 	return rc;
 }
 
-static int cam_icp_mgr_process_cmd_allocated(void *priv, void *data)
-{
-	int rc;
-	struct hfi_cmd_work_data *task_data = NULL;
-	struct cam_icp_hw_mgr *hw_mgr;
-
-	if (!data || !priv) {
-		CAM_ERR(CAM_ICP, "Invalid params%pK %pK", data, priv);
-		return -EINVAL;
-	}
-
-	hw_mgr = priv;
-	task_data = (struct hfi_cmd_work_data *)data;
-
-	rc = hfi_write_cmd(task_data->data);
-
-	kfree(task_data->data);
-	return rc;
-}
-
 static int cam_icp_mgr_cleanup_ctx(struct cam_icp_hw_ctx_data *ctx_data)
 {
 	int i;
@@ -4088,7 +4068,7 @@ static int cam_icp_mgr_release_hw(void *hw_mgr_priv, void *release_hw_args)
 static int cam_icp_mgr_create_handle(uint32_t dev_type,
 	struct cam_icp_hw_ctx_data *ctx_data)
 {
-	struct hfi_cmd_create_handle *create_handle;
+	struct hfi_cmd_create_handle create_handle;
 	struct hfi_cmd_work_data *task_data;
 	unsigned long rem_jiffies;
 	int timeout = 5000;
@@ -4099,28 +4079,20 @@ static int cam_icp_mgr_create_handle(uint32_t dev_type,
 	if (!task)
 		return -ENOMEM;
 
-	create_handle = kzalloc(sizeof(struct hfi_cmd_create_handle), GFP_KERNEL);
-	if (!create_handle) {
-		rc = -ENOMEM;
-		return rc;
-	}
-
-	create_handle->size = sizeof(struct hfi_cmd_create_handle);
-	create_handle->pkt_type = HFI_CMD_IPEBPS_CREATE_HANDLE;
-	create_handle->handle_type = dev_type;
-	create_handle->user_data1 = (uint64_t)ctx_data;
+	create_handle.size = sizeof(struct hfi_cmd_create_handle);
+	create_handle.pkt_type = HFI_CMD_IPEBPS_CREATE_HANDLE;
+	create_handle.handle_type = dev_type;
+	create_handle.user_data1 = PTR_TO_U64(ctx_data);
 	reinit_completion(&ctx_data->wait_complete);
 	task_data = (struct hfi_cmd_work_data *)task->payload;
-	task_data->data = (void *)create_handle;
+	task_data->data = (void *)&create_handle;
 	task_data->request_id = 0;
 	task_data->type = ICP_WORKQ_TASK_CMD_TYPE;
-	task->process_cb = cam_icp_mgr_process_cmd_allocated;
+	task->process_cb = cam_icp_mgr_process_cmd;
 	rc = cam_req_mgr_workq_enqueue_task(task, &icp_hw_mgr,
 		CRM_TASK_PRIORITY_0);
-	if (rc) {
-		kfree(create_handle);
+	if (rc)
 		return rc;
-	}
 
 	rem_jiffies = wait_for_completion_timeout(&ctx_data->wait_complete,
 			msecs_to_jiffies((timeout)));
@@ -4140,7 +4112,7 @@ static int cam_icp_mgr_create_handle(uint32_t dev_type,
 
 static int cam_icp_mgr_send_ping(struct cam_icp_hw_ctx_data *ctx_data)
 {
-	struct hfi_cmd_ping_pkt *ping_pkt;
+	struct hfi_cmd_ping_pkt ping_pkt;
 	struct hfi_cmd_work_data *task_data;
 	unsigned long rem_jiffies;
 	int timeout = 5000;
@@ -4153,28 +4125,20 @@ static int cam_icp_mgr_send_ping(struct cam_icp_hw_ctx_data *ctx_data)
 		return -ENOMEM;
 	}
 
-	ping_pkt = kzalloc(sizeof(struct hfi_cmd_ping_pkt), GFP_KERNEL);
-	if (!ping_pkt) {
-		rc = -ENOMEM;
-		return rc;
-	}
-
-	ping_pkt->size = sizeof(struct hfi_cmd_ping_pkt);
-	ping_pkt->pkt_type = HFI_CMD_SYS_PING;
-	ping_pkt->user_data = (uint64_t)ctx_data;
+	ping_pkt.size = sizeof(struct hfi_cmd_ping_pkt);
+	ping_pkt.pkt_type = HFI_CMD_SYS_PING;
+	ping_pkt.user_data = PTR_TO_U64(ctx_data);
 	init_completion(&ctx_data->wait_complete);
 	task_data = (struct hfi_cmd_work_data *)task->payload;
-	task_data->data = (void *)ping_pkt;
+	task_data->data = (void *)&ping_pkt;
 	task_data->request_id = 0;
 	task_data->type = ICP_WORKQ_TASK_CMD_TYPE;
-	task->process_cb = cam_icp_mgr_process_cmd_allocated;
+	task->process_cb = cam_icp_mgr_process_cmd;
 
 	rc = cam_req_mgr_workq_enqueue_task(task, &icp_hw_mgr,
 		CRM_TASK_PRIORITY_0);
-	if (rc) {
-		kfree(ping_pkt);
+	if (rc)
 		return rc;
-	}
 
 	rem_jiffies = wait_for_completion_timeout(&ctx_data->wait_complete,
 			msecs_to_jiffies((timeout)));

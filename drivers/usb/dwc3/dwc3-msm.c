@@ -3719,7 +3719,6 @@ static ssize_t usb_data_enabled_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR_RW(usb_data_enabled);
->>>>>>> common/lineage-20
 
 static int dwc3_msm_probe(struct platform_device *pdev)
 {

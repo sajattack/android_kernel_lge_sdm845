@@ -972,11 +972,6 @@ skip_sysfs_create:
 	pm_power_off = do_msm_poweroff;
 	arm_pm_restart = do_msm_restart;
 
-#ifdef CONFIG_LGE_POWEROFF_TIMEOUT
-	pm_power_off_timeout = do_msm_poweroff_timeout;
-	arm_pm_restart_timeout = do_msm_restart_timeout;
-#endif
-
 	if (scm_is_call_available(SCM_SVC_PWR, SCM_IO_DISABLE_PMIC_ARBITER) > 0)
 		scm_pmic_arbiter_disable_supported = true;
 

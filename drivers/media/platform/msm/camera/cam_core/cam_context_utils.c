@@ -209,9 +209,7 @@ static void cam_context_sync_callback(int32_t sync_obj, int status, void *data)
 		 * mutex.
 		 */
 		if (status == CAM_SYNC_STATE_SIGNALED_ERROR) {
-			/* LGE_CHANGE, CST, change log level for fence error */
-			CAM_INFO(CAM_CTXT, "fence error: %d request Id %llu",
-			    sync_obj, req->request_id);
+			CAM_DBG(CAM_CTXT, "fence error: %d", sync_obj);
 			flush_cmd.req_id = req->request_id;
 			cam_context_flush_req_to_hw(ctx, &flush_cmd);
 		}

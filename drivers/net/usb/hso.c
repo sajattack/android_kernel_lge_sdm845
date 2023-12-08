@@ -2271,7 +2271,6 @@ static int hso_serial_common_create(struct hso_serial *serial, int num_urbs,
 
 	tty_port_init(&serial->port);
 
-	minor = get_free_serial_index();
 	if (obtain_minor(serial))
 		goto exit2;
 

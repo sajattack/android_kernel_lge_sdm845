@@ -4880,10 +4880,10 @@ static int __init touch_device_init(void)
 	TOUCH_TRACE();
 
 	TOUCH_I("%s\n", __func__);
-	if (!is_ddic_name("sw43410")) {
-		TOUCH_I("%s, ddic sw43410 not found.\n", __func__);
-		return 0;
-	}
+	/*if (!is_ddic_name("sw43410")) {*/
+		/*TOUCH_I("%s, ddic sw43410 not found.\n", __func__);*/
+		/*return 0;*/
+	/*}*/
 
 //	maker = lge_get_touch_id();
 //

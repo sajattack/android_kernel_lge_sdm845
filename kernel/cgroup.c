@@ -64,9 +64,6 @@
 #include <linux/file.h>
 #include <linux/psi.h>
 #include <net/sock.h>
-#include <linux/binfmts.h>
-#include <linux/devfreq_boost.h>
-#include <linux/cpu_input_boost.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/cgroup.h>
@@ -2985,16 +2982,6 @@ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
 	ret = cgroup_procs_write_permission(tsk, cgrp, of);
 	if (!ret)
 		ret = cgroup_attach_task(cgrp, tsk, threadgroup);
-
-	/* This covers boosting for app launches and app transitions */
-        if (!ret && !threadgroup &&
-               !memcmp(of->kn->parent->name, "top-app", sizeof("top-app")) &&
-               task_is_zygote(tsk->parent)) {
-		cpu_input_boost_kick_max(1000);
-                devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 1000);
-                devfreq_boost_kick_max(DEVFREQ_MSM_LLCCBW, 1000);
-
-        }
 
 	put_task_struct(tsk);
 	goto out_unlock_threadgroup;
@@ -5956,48 +5943,6 @@ int __init cgroup_init(void)
 	WARN_ON(register_filesystem(&cgroup2_fs_type));
 	WARN_ON(!proc_create("cgroups", 0, NULL, &proc_cgroupstats_operations));
 
-	return 0;
-}
-
-static u64 power_of_ten(int power)
-{
-	u64 v = 1;
-	while (power--)
-		v *= 10;
-	return v;
-}
-
-/**
- * cgroup_parse_float - parse a floating number
- * @input: input string
- * @dec_shift: number of decimal digits to shift
- * @v: output
- *
- * Parse a decimal floating point number in @input and store the result in
- * @v with decimal point right shifted @dec_shift times.  For example, if
- * @input is "12.3456" and @dec_shift is 3, *@v will be set to 12345.
- * Returns 0 on success, -errno otherwise.
- *
- * There's nothing cgroup specific about this function except that it's
- * currently the only user.
- */
-int cgroup_parse_float(const char *input, unsigned dec_shift, s64 *v)
-{
-	s64 whole, frac = 0;
-	int fstart = 0, fend = 0, flen;
-
-	if (!sscanf(input, "%lld.%n%lld%n", &whole, &fstart, &frac, &fend))
-		return -EINVAL;
-	if (frac < 0)
-		return -EINVAL;
-
-	flen = fend > fstart ? fend - fstart : 0;
-	if (flen < dec_shift)
-		frac *= power_of_ten(dec_shift - flen);
-	else
-		frac = DIV_ROUND_CLOSEST_ULL(frac, power_of_ten(flen - dec_shift));
-
-	*v = whole * power_of_ten(dec_shift) + frac;
 	return 0;
 }
 

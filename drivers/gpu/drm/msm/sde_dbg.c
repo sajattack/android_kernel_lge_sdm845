@@ -20,10 +20,6 @@
 #include <linux/dma-buf.h>
 #include <linux/slab.h>
 #include <linux/list_sort.h>
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-#include <linux/mutex.h>
-#include "dsi_display.h"
-#endif
 
 #include "sde_dbg.h"
 #include "sde/sde_hw_catalog.h"
@@ -2267,7 +2263,7 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 
 			_sde_dump_reg(range_node->range_name, reg_dump_flag,
 					dbg->base, addr, len,
-					&range_node->reg_dump, true);
+					&range_node->reg_dump, false);
 		}
 	} else {
 		/* If there is no list to dump ranges, dump all registers */
@@ -2278,7 +2274,7 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 		addr = dbg->base;
 		len = dbg->max_offset;
 		_sde_dump_reg(dbg->name, reg_dump_flag, dbg->base, addr, len,
-				&dbg->reg_dump, true);
+				&dbg->reg_dump, false);
 	}
 }
 
@@ -2628,16 +2624,6 @@ static void _sde_dump_array(struct sde_dbg_reg_base *blk_arr[],
 	bool dump_dbgbus_vbif_rt, bool dump_all)
 {
 	int i;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	struct dsi_display *display = NULL;
-
-	display = primary_display;
-
-	if (display != NULL && display->panel != NULL && display->panel->lge.panel_dead) {
-		pr_debug("Do not dump sde when panel dead\n");
-		return;
-	}
-#endif
 
 	mutex_lock(&sde_dbg_base.mutex);
 
@@ -3488,11 +3474,7 @@ int sde_dbg_init(struct device *dev, struct sde_dbg_power_ctrl *power_ctrl)
 	INIT_WORK(&sde_dbg_base.dump_work, _sde_dump_work);
 	sde_dbg_base.work_panic = false;
 	sde_dbg_base.panic_on_err = DEFAULT_PANIC;
-#if defined(CONFIG_LGE_DISPLAY_XLOG_ENABLED)
-	sde_dbg_base.enable_reg_dump = 3;
-#else
-	sde_dbg_base.enable_reg_dump = 1;
-#endif
+	sde_dbg_base.enable_reg_dump = DEFAULT_REGDUMP;
 
 	pr_info("evtlog_status: enable:%d, panic:%d, dump:%d\n",
 		sde_dbg_base.evtlog->enable, sde_dbg_base.panic_on_err,

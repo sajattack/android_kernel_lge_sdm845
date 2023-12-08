@@ -26,10 +26,6 @@
 #include <media/v4l2-event.h>
 #include <media/videobuf2-v4l2.h>
 #include <media/v4l2-mem2mem.h>
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-#include <linux/notifier.h>
-#include <linux/lge_panel_notify.h>
-#endif
 
 #include "sde_rotator_inline.h"
 #include "sde_rotator_base.h"
@@ -73,9 +69,6 @@ static void sde_rotator_pm_qos_request(struct sde_rotator_device *rot_dev,
 #ifdef CONFIG_COMPAT
 static long sde_rotator_compat_ioctl32(struct file *file,
 	unsigned int cmd, unsigned long arg);
-#endif
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-extern void sde_rot_dump_enable(bool enable);
 #endif
 
 /*
@@ -1297,6 +1290,7 @@ void sde_rotator_pm_qos_add(struct sde_rot_data_type *rot_mdata)
 {
 	struct pm_qos_request *req;
 	u32 cpu_mask;
+	int cpu;
 
 	if (!rot_mdata) {
 		SDEROT_DBG("invalid rot device or context\n");
@@ -1310,7 +1304,11 @@ void sde_rotator_pm_qos_add(struct sde_rot_data_type *rot_mdata)
 
 	req = &rot_mdata->pm_qos_rot_cpu_req;
 	req->type = PM_QOS_REQ_AFFINE_CORES;
-	atomic_set(&req->cpus_affine, cpu_mask);
+	cpumask_empty(&req->cpus_affine);
+	for_each_possible_cpu(cpu) {
+		if ((1 << cpu) & cpu_mask)
+			cpumask_set_cpu(cpu, &req->cpus_affine);
+	}
 	pm_qos_add_request(req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
@@ -3559,34 +3557,6 @@ static const void *sde_rotator_get_drv_data(struct device *dev)
 	return NULL;
 }
 
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-static int panel_dead_state_callback(struct notifier_block *nb,
-					unsigned long val, void *data)
-{
-	struct lge_panel_notifier *evdata = (struct lge_panel_notifier *) data;
-
-	if (val != LGE_PANEL_EVENT_RECOVERY)
-		return 0;
-
-	if (evdata) {
-		if (evdata->state == LGE_PANEL_RECOVERY_DEAD) {
-			sde_rot_dump_enable(false);
-		} else if (evdata->state == LGE_PANEL_RECOVERY_ALIVE) {
-			sde_rot_dump_enable(true);
-		} else {
-			pr_err("Invalid event state\n");
-		}
-	}
-	return 0;
-}
-
-static struct notifier_block panel_dead_noti_block = {
-	.notifier_call = panel_dead_state_callback,
-};
-
-extern void sde_rot_dbg_evtlog_init(void);
-#endif
-
 /*
  * sde_rotator_probe - rotator device probe method.
  * @pdev: Pointer to rotator platform device.
@@ -3693,12 +3663,6 @@ static int sde_rotator_probe(struct platform_device *pdev)
 		}
 		rot_dev->kthread_free[i] = true;
 	}
-
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	rot_dev->notifier = panel_dead_noti_block;
-	if (lge_panel_notifier_register_client(&rot_dev->notifier))
-		SDEDEV_ERR(&pdev->dev, "fail register panel notifier block\n");
-#endif
 
 	SDEDEV_INFO(&pdev->dev, "SDE v4l2 rotator probe success\n");
 

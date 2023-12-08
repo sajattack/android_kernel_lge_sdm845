@@ -33,7 +33,7 @@ static struct lge_ddic_match supported_ddic_list[] = {
 };
 
 extern char* get_ddic_name(void);
-extern bool is_ddic_name(char *ddic_name);
+//extern bool is_ddic_name(char *ddic_name);
 extern int lge_mdss_dsi_panel_cmds_backup(struct dsi_panel *panel, char *owner,
 				enum lge_ddic_dsi_cmd_set_type type, u8 reg, int nth_cmds);
 
@@ -193,12 +193,12 @@ void lge_ddic_ops_init(struct dsi_panel *panel)
 	int i;
 	int count = sizeof(supported_ddic_list)/sizeof(supported_ddic_list[0]);
 
-	for (i = 0; i < count; ++i) {
-		if (is_ddic_name(supported_ddic_list[i].compatible)) {
-			panel->lge.ddic_ops = supported_ddic_list[i].ops;
-			break;
-		}
-	}
+	/*for (i = 0; i < count; ++i) {*/
+		/*if (is_ddic_name(supported_ddic_list[i].compatible)) {*/
+			/*panel->lge.ddic_ops = supported_ddic_list[i].ops;*/
+			/*break;*/
+		/*}*/
+	/*}*/
 
 	if (panel->lge.ddic_ops == NULL)
 		pr_warn("no matched ddic ops for %s\n", get_ddic_name());

@@ -50,7 +50,6 @@ $(warning LSE atomics not supported by binutils)
   endif
 endif
 
-<<<<<<< HEAD
 ifeq ($(CONFIG_ARCH_SDM845), y)
 ifeq ($(cc-name),clang)
 KBUILD_CFLAGS   += -mcpu=cortex-a55+crypto -mtune=cortex-a55

@@ -2227,11 +2227,6 @@ static int qpnp_flash_led_parse_each_led_dt(struct qpnp_flash_led *led,
 		return rc;
 	}
 
-#ifdef CONFIG_MACH_LGE
-        fnode->dbg_dev = device_create_with_groups(get_camera_class(), &led->pdev->dev, 0,
-                                &fnode->cdev, flash_groups, "%s", fnode->cdev.name);
-#endif
-
 	fnode->cdev.dev->of_node = node;
 	fnode->strobe_pinctrl = devm_pinctrl_get(fnode->cdev.dev);
 	if (IS_ERR_OR_NULL(fnode->strobe_pinctrl)) {
@@ -2976,16 +2971,6 @@ static int qpnp_flash_led_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, led);
 
-#ifdef CONFIG_MACH_LGE
-		led->last_fault = 0;
-		led->dev_fault = device_create(get_camera_class(), &led->pdev->dev,
-			0, led, "flash_fault_status");
-		rc = sysfs_create_file(&led->dev_fault->kobj,
-				&dev_attr_fault_status.attr);
-		if (rc)
-			pr_err("error creating flash_fault_status\n");
-
-#endif
 
 	return 0;
 

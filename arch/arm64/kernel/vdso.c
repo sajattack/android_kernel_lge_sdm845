@@ -28,7 +28,6 @@
 #include <linux/gfp.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/moduleparam.h>
 #include <linux/sched.h>
 #include <linux/signal.h>
 #include <linux/slab.h>
@@ -324,23 +323,6 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 void update_vsyscall(struct timekeeper *tk)
 {
 	u32 use_syscall = !tk->tkr_mono.clock->archdata.vdso_direct;
-
-#ifdef USE_SYSCALL
-	if (use_syscall) {
-		use_syscall = USE_SYSCALL | USE_SYSCALL_32 | USE_SYSCALL_64;
-	} else {
-#if (defined(__LP64__))
-		if (!enable_64)
-#endif
-			use_syscall = USE_SYSCALL_64;
-#if (!defined(__LP64) || (defined(CONFIG_COMPAT) && defined(CONFIG_VDSO32)))
-		if (!enable_32)
-#endif
-			use_syscall |= USE_SYSCALL_32;
-		if (use_syscall == (USE_SYSCALL_32 | USE_SYSCALL_64))
-			use_syscall |= USE_SYSCALL;
-	}
-#endif
 
 	++vdso_data->tb_seq_count;
 	smp_wmb();

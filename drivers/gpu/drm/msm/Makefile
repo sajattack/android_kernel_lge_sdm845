@@ -4,7 +4,6 @@ ccflags-$(CONFIG_DRM_MSM_DSI_PLL) += -Idrivers/gpu/drm/msm/dsi
 ccflags-y += -Idrivers/gpu/drm/msm/sde
 ccflags-y += -Idrivers/media/platform/msm/sde/rotator
 ccflags-y += -Idrivers/gpu/drm/msm/hdmi
-ccflags-$(CONFIG_LGE_PM_PRM) += -Idrivers/soc/qcom/lge/power
 
 msm_drm-y := \
 	dp/dp_usbpd.o \
@@ -187,7 +186,4 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_fence.o \
 	msm_debugfs.o
 
-obj-$(CONFIG_LGE_DISPLAY_COMMON) += lge/
-
 obj-$(CONFIG_DRM_MSM)	+= msm_drm.o
-CFLAGS_sde_crtc.o += -Wframe-larger-than=8192

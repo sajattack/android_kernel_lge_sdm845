@@ -155,10 +155,6 @@ struct drm_panel_esd_config {
 	u32 groups;
 };
 
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-#include "../lge/lge_dsi_panel_def.h"
-#endif
-
 enum dsi_panel_type {
 	DSI_PANEL = 0,
 	EXT_BRIDGE,
@@ -217,10 +213,9 @@ struct dsi_panel {
 
 	char dsc_pps_cmd[DSI_CMD_PPS_SIZE];
 	enum dsi_dms_mode dms_mode;
+
 	bool sync_broadcast_en;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	struct lge_dsi_panel lge;
-#endif
+
 	struct dsi_panel_exd_config exd_config;
 };
 
@@ -284,10 +279,6 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel);
 int dsi_panel_set_lp1(struct dsi_panel *panel);
 
 int dsi_panel_set_lp2(struct dsi_panel *panel);
-
-int dsi_panel_set_low_persist_mode_disable(struct dsi_panel *panel);
-
-int dsi_panel_set_low_persist_mode_enable(struct dsi_panel *panel);
 
 int dsi_panel_set_nolp(struct dsi_panel *panel);
 

@@ -1160,7 +1160,7 @@ static int gf_initialize_device_data(struct gf_dev* gf_dev, struct platform_devi
 	spin_lock_init(&gf_dev->spi_lock);
 //	wake_lock_init(&fp_wakelock,WAKE_LOCK_SUSPEND,"fp_wakelock");
 	device_init_wakeup(&gf_dev->spi->dev, true);
-#ifdef GF_CUSTOM_NOTIFIER
+#if 0
 	if(lge_panel_notifier_register_client(&gf_dev->notifier)){
 #else
 	if(fb_register_client(&gf_dev->notifier)) {
@@ -1514,7 +1514,7 @@ error_setup_regulator:
 	gf_cleanup(gf_dev);
 #if 1
 error_parse_dts:
-#ifdef GF_CUSTOM_NOTIFIER
+#if 0
 	lge_panel_notifier_unregister_client(&gf_dev->notifier);
 #else
 	fb_unregister_client(&gf_dev->notifier);
@@ -1570,7 +1570,7 @@ static int gf_remove(struct platform_device *pdev)
 	else {
 		gf_dbg("Not free_pages.\n");
 	}
-#ifdef GF_CUSTOM_NOTIFIER
+#if 0
 	lge_panel_notifier_unregister_client(&gf_dev->notifier);
 #else
 	fb_unregister_client(&gf_dev->notifier);

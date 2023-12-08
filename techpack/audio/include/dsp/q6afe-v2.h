@@ -14,6 +14,7 @@
 #include <dsp/apr_audio-v2.h>
 #include <dsp/rtac.h>
 #if defined(CONFIG_SND_SOC_TFA9872)||defined(CONFIG_SND_SOC_TFA9878)
+#include "../../asoc/codecs/tfa9878/inc/tfa_ext.h"
 #include <ipc/apr_tal.h>
 #endif
 
@@ -361,13 +362,11 @@ struct afe_tfa_dsp_read_msg_t {
 #endif /* CONFIG_SND_SOC_TFA9872 || CONFIG_SND_SOC_TFA9878 */
 
 #if defined(CONFIG_SND_SOC_TFA9872)
-typedef int (*tfa_event_handler_t)(int devidx, int tfadsp_event);
-typedef int (*dsp_send_message_t)(int devidx, int length,
-	char *buf, int msg_type, int num_msgs);
-typedef int (*dsp_read_message_t)(int devidx, int length, char *buf);
-#endif
+//typedef int (*tfa_event_handler_t)(int devidx, int tfadsp_event);
+//typedef int (*dsp_send_message_t)(int devidx, int length,
+	//char *buf, int msg_type, int num_msgs);
+//typedef int (*dsp_read_message_t)(int devidx, int length, char *buf);
 
-#if defined(CONFIG_SND_SOC_TFA9878)
 int afe_tfadsp_read(void * dev, int buf_size, unsigned char *buf);
 int afe_tfadsp_write(void * dev, int buf_size, const char *buf);
 #endif
@@ -479,7 +478,9 @@ void afe_set_routing_callback(routing_cb cb);
 int afe_get_av_dev_drift(struct afe_param_id_dev_timing_stats *timing_stats,
 		u16 port);
 #if defined(CONFIG_SND_SOC_TFA9872)
-int tfa_ext_register(dsp_send_message_t tfa_send_message,
+int tfa_ext_register(
+        dsp_write_reg_t tfa_write_reg,
+        dsp_send_message_t tfa_send_message,
 		dsp_read_message_t tfa_read_message,
 		tfa_event_handler_t *tfa_event_handler);
 #endif

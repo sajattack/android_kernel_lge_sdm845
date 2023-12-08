@@ -343,11 +343,6 @@ int touch_boot_mode_check(struct device *dev)
 	return ret;
 }
 
-#if defined(CONFIG_LGE_TOUCH_LGSIC_SW49408) || defined(CONFIG_LGE_TOUCH_LGSIC_SW49409) || defined(CONFIG_LGE_TOUCH_LGSIC_SW49410)
-
-extern bool is_ddic_name(char *ddic_name);
-#endif
-
 enum touch_device_type touch_get_device_type(void)
 {
 	enum touch_device_type ret = TYPE_DUMMY;
@@ -360,15 +355,6 @@ enum touch_device_type touch_get_device_type(void)
 	ret = TYPE_FTM4;
 #endif
 
-#if defined(CONFIG_LGE_TOUCH_LGSIC_SW49408) || defined(CONFIG_LGE_TOUCH_LGSIC_SW49409) || defined(CONFIG_LGE_TOUCH_LGSIC_SW49410)
-
-	if (is_ddic_name("sw49408"))
-		ret = TYPE_SW49408;
-	else if (is_ddic_name("sw49409"))
-		ret = TYPE_SW49409;
-	else if (is_ddic_name("sw49410") || is_ddic_name("sw49410_rev1"))
-		ret = TYPE_SW49410;
-#endif
 
 #if defined(CONFIG_LGE_PANEL_MAKER_ID_SUPPORT)
 	ret = lge_get_panel_maker_id();

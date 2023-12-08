@@ -32,28 +32,6 @@ struct user_struct;
 struct writeback_control;
 struct bdi_writeback;
 
-/**
- * mmgrab() - Pin a &struct mm_struct.
- * @mm: The &struct mm_struct to pin.
- *
- * Make sure that @mm will not get freed even after the owning task
- * exits. This doesn't guarantee that the associated address space
- * will still exist later on and mmget_not_zero() has to be used before
- * accessing it.
- *
- * This is a preferred way to pin @mm for a longer/unbounded amount
- * of time.
- *
- * Use mmdrop() to release the reference acquired by mmgrab().
- *
- * See also <Documentation/vm/active_mm.rst> for an in-depth explanation
- * of &mm_struct.mm_count vs &mm_struct.mm_users.
- */
-static inline void mmgrab(struct mm_struct *mm)
-{
-	atomic_inc(&mm->mm_count);
-}
-
 #ifndef CONFIG_NEED_MULTIPLE_NODES	/* Don't use mapnrs, do it properly */
 extern unsigned long max_mapnr;
 
@@ -65,32 +43,7 @@ static inline void set_max_mapnr(unsigned long limit)
 static inline void set_max_mapnr(unsigned long limit) { }
 #endif
 
-extern atomic_long_t _totalram_pages;
-static inline unsigned long totalram_pages(void)
-{
-	return (unsigned long)atomic_long_read(&_totalram_pages);
-}
-
-static inline void totalram_pages_inc(void)
-{
-	atomic_long_inc(&_totalram_pages);
-}
-
-static inline void totalram_pages_dec(void)
-{
-	atomic_long_dec(&_totalram_pages);
-}
-
-static inline void totalram_pages_add(long count)
-{
-	atomic_long_add(count, &_totalram_pages);
-}
-
-static inline void totalram_pages_set(long val)
-{
-	atomic_long_set(&_totalram_pages, val);
-}
-
+extern unsigned long totalram_pages;
 extern void * high_memory;
 extern int page_cluster;
 
@@ -549,16 +502,16 @@ unsigned long vmalloc_to_pfn(const void *addr);
  * On nommu, vmalloc/vfree wrap through kmalloc/kfree directly, so there
  * is no special casing required.
  */
-static inline bool is_vmalloc_addr(const void *x)
-{
-#ifdef CONFIG_MMU
-	unsigned long addr = (unsigned long)x;
 
-	return addr >= VMALLOC_START && addr < VMALLOC_END;
+#ifdef CONFIG_MMU
+extern int is_vmalloc_addr(const void *x);
 #else
-	return false;
-#endif
+static inline int is_vmalloc_addr(const void *x)
+{
+	return 0;
 }
+#endif
+
 #ifdef CONFIG_MMU
 extern int is_vmalloc_or_module_addr(const void *x);
 #else
@@ -567,20 +520,6 @@ static inline int is_vmalloc_or_module_addr(const void *x)
 	return 0;
 }
 #endif
-
-extern void *kvmalloc_node(size_t size, gfp_t flags, int node);
-static inline void *kvmalloc(size_t size, gfp_t flags)
-{
-	return kvmalloc_node(size, flags, NUMA_NO_NODE);
-}
-static inline void *kvzalloc_node(size_t size, gfp_t flags, int node)
-{
-	return kvmalloc_node(size, flags | __GFP_ZERO, node);
-}
-static inline void *kvzalloc(size_t size, gfp_t flags)
-{
-	return kvmalloc(size, flags | __GFP_ZERO);
-}
 
 extern void kvfree(const void *addr);
 
@@ -1735,32 +1674,26 @@ static inline pte_t *get_locked_pte(struct mm_struct *mm, unsigned long addr,
 	return ptep;
 }
 
-#if defined(__PAGETABLE_PUD_FOLDED) || !defined(CONFIG_MMU)
+#ifdef __PAGETABLE_PUD_FOLDED
 static inline int __pud_alloc(struct mm_struct *mm, pgd_t *pgd,
 						unsigned long address)
 {
 	return 0;
 }
-static inline void mm_inc_nr_puds(struct mm_struct *mm) {}
-static inline void mm_dec_nr_puds(struct mm_struct *mm) {}
-
 #else
 int __pud_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address);
-
-static inline void mm_inc_nr_puds(struct mm_struct *mm)
-{
-	atomic_long_add(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
-}
-
-static inline void mm_dec_nr_puds(struct mm_struct *mm)
-{
-	atomic_long_sub(PTRS_PER_PUD * sizeof(pud_t), &mm->pgtables_bytes);
-}
 #endif
 
 #if defined(__PAGETABLE_PMD_FOLDED) || !defined(CONFIG_MMU)
 static inline int __pmd_alloc(struct mm_struct *mm, pud_t *pud,
 						unsigned long address)
+{
+	return 0;
+}
+
+static inline void mm_nr_pmds_init(struct mm_struct *mm) {}
+
+static inline unsigned long mm_nr_pmds(struct mm_struct *mm)
 {
 	return 0;
 }
@@ -1771,47 +1704,25 @@ static inline void mm_dec_nr_pmds(struct mm_struct *mm) {}
 #else
 int __pmd_alloc(struct mm_struct *mm, pud_t *pud, unsigned long address);
 
+static inline void mm_nr_pmds_init(struct mm_struct *mm)
+{
+	atomic_long_set(&mm->nr_pmds, 0);
+}
+
+static inline unsigned long mm_nr_pmds(struct mm_struct *mm)
+{
+	return atomic_long_read(&mm->nr_pmds);
+}
+
 static inline void mm_inc_nr_pmds(struct mm_struct *mm)
 {
-	atomic_long_add(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+	atomic_long_inc(&mm->nr_pmds);
 }
 
 static inline void mm_dec_nr_pmds(struct mm_struct *mm)
 {
-	atomic_long_sub(PTRS_PER_PMD * sizeof(pmd_t), &mm->pgtables_bytes);
+	atomic_long_dec(&mm->nr_pmds);
 }
-#endif
-
-#ifdef CONFIG_MMU
-static inline void mm_pgtables_bytes_init(struct mm_struct *mm)
-{
-	atomic_long_set(&mm->pgtables_bytes, 0);
-}
-
-static inline unsigned long mm_pgtables_bytes(const struct mm_struct *mm)
-{
-	return atomic_long_read(&mm->pgtables_bytes);
-}
-
-static inline void mm_inc_nr_ptes(struct mm_struct *mm)
-{
-	atomic_long_add(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
-}
-
-static inline void mm_dec_nr_ptes(struct mm_struct *mm)
-{
-	atomic_long_sub(PTRS_PER_PTE * sizeof(pte_t), &mm->pgtables_bytes);
-}
-#else
-
-static inline void mm_pgtables_bytes_init(struct mm_struct *mm) {}
-static inline unsigned long mm_pgtables_bytes(const struct mm_struct *mm)
-{
-	return 0;
-}
-
-static inline void mm_inc_nr_ptes(struct mm_struct *mm) {}
-static inline void mm_dec_nr_ptes(struct mm_struct *mm) {}
 #endif
 
 int __pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long address);
@@ -2517,7 +2428,6 @@ static inline struct page *follow_page(struct vm_area_struct *vma,
 #define FOLL_REMOTE	0x2000	/* we are working on non-current tsk/mm */
 #define FOLL_COW	0x4000	/* internal GUP flag */
 #define FOLL_ANON	0x8000	/* don't do file mappings */
-#define FOLL_CMA	0x80000 /* migrate if the page is from cma pageblock */
 
 typedef int (*pte_fn_t)(pte_t *pte, pgtable_t token, unsigned long addr,
 			void *data);
@@ -2534,13 +2444,6 @@ static inline bool page_poisoning_enabled(void) { return false; }
 static inline void kernel_poison_pages(struct page *page, int numpages,
 					int enable) { }
 static inline bool page_is_poisoned(struct page *page) { return false; }
-#endif
-
-#ifdef CONFIG_CMA_PINPAGE_MIGRATION
-long get_user_pages_foll_cma(struct task_struct *tsk, struct mm_struct *mm,
-		unsigned long start, unsigned long nr_pages,
-		int write, int force, struct page **pages,
-		struct vm_area_struct **vmas);
 #endif
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
@@ -2598,7 +2501,6 @@ extern int sysctl_drop_caches;
 int drop_caches_sysctl_handler(struct ctl_table *, int,
 					void __user *, size_t *, loff_t *);
 #endif
-void mm_drop_caches(int val);
 
 void drop_slab(void);
 void drop_slab_node(int nid);
@@ -2757,8 +2659,6 @@ struct reclaim_param {
 	int nr_reclaimed;
 };
 extern struct reclaim_param reclaim_task_anon(struct task_struct *task,
-		int nr_to_reclaim);
-extern struct reclaim_param reclaim_task_file_anon(struct task_struct *task,
 		int nr_to_reclaim);
 #endif
 

@@ -888,9 +888,8 @@ static void loop_unprepare_queue(struct loop_device *lo)
 static int loop_prepare_queue(struct loop_device *lo)
 {
 	kthread_init_worker(&lo->worker);
-	lo->worker_task = kthread_run_perf_critical(
-			kthread_worker_fn, &lo->worker,
-			"loop%d", lo->lo_number);
+	lo->worker_task = kthread_run(kthread_worker_fn,
+			&lo->worker, "loop%d", lo->lo_number);
 	if (IS_ERR(lo->worker_task))
 		return -ENOMEM;
 	set_user_nice(lo->worker_task, MIN_NICE);
@@ -1027,8 +1026,6 @@ static int loop_configure(struct loop_device *lo, fmode_t mode,
 
 	mapping = file->f_mapping;
 	inode = mapping->host;
-
-	size = get_loop_size(lo, file);
 
 	if ((config->info.lo_flags & ~LOOP_CONFIGURE_SETTABLE_FLAGS) != 0) {
 		error = -EINVAL;

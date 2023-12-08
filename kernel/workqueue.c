@@ -292,7 +292,7 @@ module_param_named(disable_numa, wq_disable_numa, bool, 0444);
 
 /* see the comment above the definition of WQ_POWER_EFFICIENT */
 static bool wq_power_efficient = IS_ENABLED(CONFIG_WQ_POWER_EFFICIENT_DEFAULT);
-module_param_named(power_efficient, wq_power_efficient, bool, 0644);
+module_param_named(power_efficient, wq_power_efficient, bool, 0444);
 
 bool wq_online;				/* can kworkers be created yet? */
 
@@ -3971,37 +3971,6 @@ static int wq_clamp_max_active(int max_active, unsigned int flags,
 	return clamp_val(max_active, 1, lim);
 }
 
-/*
- * Workqueues which may be used during memory reclaim should have a rescuer
- * to guarantee forward progress.
- */
-static int init_rescuer(struct workqueue_struct *wq)
-{
-	struct worker *rescuer;
-	int ret;
-
-	if (!(wq->flags & WQ_MEM_RECLAIM))
-		return 0;
-
-	rescuer = alloc_worker(NUMA_NO_NODE);
-	if (!rescuer)
-		return -ENOMEM;
-
-	rescuer->rescue_wq = wq;
-	rescuer->task = kthread_create(rescuer_thread, rescuer, "%s", wq->name);
-	ret = PTR_ERR_OR_ZERO(rescuer->task);
-	if (ret) {
-		kfree(rescuer);
-		return ret;
-	}
-
-	wq->rescuer = rescuer;
-	kthread_bind_mask(rescuer->task, cpu_possible_mask);
-	wake_up_process(rescuer->task);
-
-	return 0;
-}
-
 struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 					       unsigned int flags,
 					       int max_active,
@@ -4064,8 +4033,29 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 	if (alloc_and_link_pwqs(wq) < 0)
 		goto err_free_wq;
 
-	if (wq_online && init_rescuer(wq) < 0)
-		goto err_destroy;
+	/*
+	 * Workqueues which may be used during memory reclaim should
+	 * have a rescuer to guarantee forward progress.
+	 */
+	if (flags & WQ_MEM_RECLAIM) {
+		struct worker *rescuer;
+
+		rescuer = alloc_worker(NUMA_NO_NODE);
+		if (!rescuer)
+			goto err_destroy;
+
+		rescuer->rescue_wq = wq;
+		rescuer->task = kthread_create(rescuer_thread, rescuer, "%s",
+					       wq->name);
+		if (IS_ERR(rescuer->task)) {
+			kfree(rescuer);
+			goto err_destroy;
+		}
+
+		wq->rescuer = rescuer;
+		kthread_bind_mask(rescuer->task, cpu_possible_mask);
+		wake_up_process(rescuer->task);
+	}
 
 	if ((wq->flags & WQ_SYSFS) && workqueue_sysfs_register(wq))
 		goto err_destroy;
@@ -5427,7 +5417,7 @@ static void workqueue_sysfs_unregister(struct workqueue_struct *wq)	{ }
 
 static void wq_watchdog_timer_fn(unsigned long data);
 
-static unsigned long wq_watchdog_thresh = 60; //15 -> 30 -> 60
+static unsigned long wq_watchdog_thresh = 30;
 static struct timer_list wq_watchdog_timer =
 	TIMER_DEFERRED_INITIALIZER(wq_watchdog_timer_fn, 0, 0);
 
@@ -5497,10 +5487,8 @@ static void wq_watchdog_timer_fn(unsigned long data)
 
 	rcu_read_unlock();
 
-	if (lockup_detected) {
+	if (lockup_detected)
 		show_workqueue_state();
-		BUG();
-	}
 
 	wq_watchdog_reset_touched();
 	mod_timer(&wq_watchdog_timer, jiffies + thresh);
@@ -5623,7 +5611,7 @@ int __init workqueue_init_early(void)
 	WARN_ON(__alignof__(struct pool_workqueue) < __alignof__(long long));
 
 	BUG_ON(!alloc_cpumask_var(&wq_unbound_cpumask, GFP_KERNEL));
-	cpumask_copy(wq_unbound_cpumask, cpu_lp_mask);
+	cpumask_copy(wq_unbound_cpumask, cpu_possible_mask);
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
 

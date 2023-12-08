@@ -25,10 +25,27 @@
 static struct lock_class_key irq_desc_lock_class;
 
 #if defined(CONFIG_SMP)
-static void __init init_irq_default_affinity(void)
+static int __init irq_affinity_setup(char *str)
 {
 	zalloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
-	cpumask_set_cpu(0, irq_default_affinity);
+	cpulist_parse(str, irq_default_affinity);
+	/*
+	 * Set at least the boot cpu. We don't want to end up with
+	 * bugreports caused by random comandline masks
+	 */
+	cpumask_set_cpu(smp_processor_id(), irq_default_affinity);
+	return 1;
+}
+__setup("irqaffinity=", irq_affinity_setup);
+
+static void __init init_irq_default_affinity(void)
+{
+#ifdef CONFIG_CPUMASK_OFFSTACK
+	if (!irq_default_affinity)
+		zalloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
+#endif
+	if (cpumask_empty(irq_default_affinity))
+		cpumask_setall(irq_default_affinity);
 }
 #else
 static void __init init_irq_default_affinity(void)
@@ -121,7 +138,7 @@ static DECLARE_BITMAP(allocated_irqs, IRQ_BITMAP_BITS);
 
 static void irq_kobj_release(struct kobject *kobj);
 
-#ifdef CONFIG_SYSFS_IRQDESC
+#ifdef CONFIG_SYSFS
 static struct kobject *irq_kobj_base;
 
 #define IRQ_ATTR_RO(_name) \

@@ -10,10 +10,7 @@
 
 #include <linux/types.h>
 #include <linux/percpu.h>
-<<<<<<< HEAD
-=======
 #include <linux/siphash.h>
->>>>>>> common/lineage-20
 
 u32 prandom_u32(void);
 void prandom_bytes(void *buf, size_t nbytes);
@@ -47,8 +44,6 @@ void prandom_reseed_late(void);
 struct rnd_state {
 	__u32 s1, s2, s3, s4;
 };
-
-DECLARE_PER_CPU(struct rnd_state, net_rand_state);
 
 u32 prandom_u32_state(struct rnd_state *state);
 void prandom_bytes_state(struct rnd_state *state, void *buf, size_t nbytes);

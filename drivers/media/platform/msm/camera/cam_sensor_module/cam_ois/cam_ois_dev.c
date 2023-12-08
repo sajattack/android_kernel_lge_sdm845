@@ -16,11 +16,6 @@
 #include "cam_ois_core.h"
 #include "cam_debug_util.h"
 
-/* LGE_CHANGE_S, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-extern void oeis_create_sysfs(void);
-extern void oeis_destroy_sysfs(void);
-/* LGE_CHANGE_E, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-
 static long cam_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
@@ -209,12 +204,6 @@ static int cam_ois_i2c_driver_probe(struct i2c_client *client,
 	if (rc)
 		goto soc_free;
 
-	/* LGE_CHANGE_S, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-	spin_lock_init(&o_ctrl->gyro_lock);
-	oeis_create_sysfs();
-	o_ctrl->ois_thread_running = false;
-	/* LGE_CHANGE_E, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 
 	return rc;
@@ -240,7 +229,6 @@ static int cam_ois_i2c_driver_remove(struct i2c_client *client)
 		return -EINVAL;
 	}
 
-	oeis_destroy_sysfs(); /* LGE_CHANGE, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
 	soc_info = &o_ctrl->soc_info;
 
 	for (i = 0; i < soc_info->num_clk; i++)
@@ -317,12 +305,6 @@ static int32_t cam_ois_platform_driver_probe(
 	platform_set_drvdata(pdev, o_ctrl);
 	v4l2_set_subdevdata(&o_ctrl->v4l2_dev_str.sd, o_ctrl);
 
-	/* LGE_CHANGE_S, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-	spin_lock_init(&o_ctrl->gyro_lock);
-	oeis_create_sysfs();
-	o_ctrl->ois_thread_running = false;
-	/* LGE_CHANGE_E, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
-
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 
 	return rc;
@@ -351,7 +333,6 @@ static int cam_ois_platform_driver_remove(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	oeis_destroy_sysfs(); /* LGE_CHANGE, 2018-09-11, OIS,AF Driver update for LG EIS, yonghwan.lym@lge.com */
 	soc_info = &o_ctrl->soc_info;
 	for (i = 0; i < soc_info->num_clk; i++)
 		devm_clk_put(soc_info->dev, soc_info->clk[i]);

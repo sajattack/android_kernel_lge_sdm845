@@ -3110,18 +3110,6 @@ tfa98xx_container_loaded(const struct firmware *cont, void *context)
 		return;
 	}
 
-/* TEMPORARY, until TFA device is probed before tfa_ext is called */
-#if defined(TFA_SET_EXT_INTERNALLY)
-#ifdef QPLATFORM
-	tfa98xx->tfa->dev_ops.dsp_msg = (dsp_send_message_t)afe_tfadsp_write;
-	tfa98xx->tfa->dev_ops.dsp_msg_read = (dsp_read_message_t)afe_tfadsp_read;
-#endif
-#ifdef MPLATFORM
-	tfa98xx->tfa->dev_ops.dsp_msg = (dsp_send_message_t)ipi_tfadsp_write;
-	tfa98xx->tfa->dev_ops.dsp_msg_read = (dsp_read_message_t)ipi_tfadsp_read;
-#endif
-#endif
-
 	tfa98xx->tfa->dev_idx = tfa_cont_get_idx(tfa98xx->tfa);
 	if (tfa98xx->tfa->dev_idx < 0) {
 		dev_err(tfa98xx->dev,

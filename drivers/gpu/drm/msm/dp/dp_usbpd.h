@@ -67,7 +67,6 @@ struct dp_usbpd {
 
 	int (*simulate_connect)(struct dp_usbpd *dp_usbpd, bool hpd);
 	int (*simulate_attention)(struct dp_usbpd *dp_usbpd, int vdo);
-	enum plug_orientation (*get_orientation)(struct dp_usbpd *dp_usbpd);
 };
 
 /**

@@ -389,8 +389,8 @@ static int get_opt_frequency(int cl, int lvl)
 	if (actual > bmc_param->maxturbo)
 		actual = bmc_param->maxturbo;
 
-	trace_sugov_triton_level(platform_data.notify_info.cur_policy,
-				max, min, diff, freq, actual);
+	//trace_sugov_triton_level(platform_data.notify_info.cur_policy,
+    //  max, min, diff, freq, actual);
 
 	return actual;
 }

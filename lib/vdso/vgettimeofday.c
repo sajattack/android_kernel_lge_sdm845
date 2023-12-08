@@ -300,14 +300,6 @@ notrace int __vdso_clock_gettime(clockid_t clock, struct timespec *ts)
 {
 	const struct vdso_data *vd = __get_datapage();
 
-#ifdef USE_SYSCALL
-	if (vd->use_syscall & USE_SYSCALL_MASK) {
-		goto fallback;
-	}
-#endif
-
-=======
->>>>>>> common/lineage-20
 	switch (clock) {
 	case CLOCK_REALTIME_COARSE:
 		do_realtime_coarse(vd, ts);

@@ -13,7 +13,6 @@
  */
 
 #define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
-#define DEBUG
 
 #include <linux/of_platform.h>
 #include <linux/msm_ext_display.h>
@@ -620,7 +619,7 @@ static int dp_audio_notify(struct dp_audio_private *audio, u32 state)
 	}
 
 	reinit_completion(&audio->hpd_comp);
-	rc = wait_for_completion_timeout(&audio->hpd_comp, HZ * 4);
+	rc = wait_for_completion_timeout(&audio->hpd_comp, HZ * 5);
 	if (!rc) {
 		pr_err("timeout. state=%d err=%d\n", state, rc);
 		rc = -ETIMEDOUT;
@@ -661,15 +660,9 @@ static int dp_audio_on(struct dp_audio *dp_audio)
 		goto end;
 	}
 
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	cancel_delayed_work_sync(&audio->notify_delayed_work);
-	queue_delayed_work(audio->notify_workqueue,
-			&audio->notify_delayed_work, HZ/4);
-#else
 	rc = dp_audio_notify(audio, EXT_DISPLAY_CABLE_CONNECT);
 	if (rc)
 		goto end;
-#endif
 
 	pr_debug("success\n");
 end:
