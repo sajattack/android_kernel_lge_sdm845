@@ -1275,6 +1275,7 @@ int extcon_dev_register(struct extcon_dev *edev)
 			sizeof(*edev->nh) * edev->max_supported, GFP_KERNEL);
 	if (!edev->nh) {
 		ret = -ENOMEM;
+		device_unregister(&edev->dev);
 		goto err_dev;
 	}
 

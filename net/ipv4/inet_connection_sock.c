@@ -23,9 +23,6 @@
 #include <net/route.h>
 #include <net/tcp_states.h>
 #include <net/xfrm.h>
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-#include <net/mptcp.h>
-#endif
 #include <net/tcp.h>
 #include <net/sock_reuseport.h>
 
@@ -91,6 +88,28 @@ int inet_csk_bind_conflict(const struct sock *sk,
 	return sk2 != NULL;
 }
 EXPORT_SYMBOL_GPL(inet_csk_bind_conflict);
+
+void inet_csk_update_fastreuse(struct inet_bind_bucket *tb,
+			       struct sock *sk)
+{
+	kuid_t uid = sock_i_uid(sk);
+	bool reuse = sk->sk_reuse && sk->sk_state != TCP_LISTEN;
+
+	if (!hlist_empty(&tb->owners)) {
+		if (!reuse)
+			tb->fastreuse = 0;
+		if (!sk->sk_reuseport || !uid_eq(tb->fastuid, uid))
+			tb->fastreuseport = 0;
+	} else {
+		tb->fastreuse = reuse;
+		if (sk->sk_reuseport) {
+			tb->fastreuseport = 1;
+			tb->fastuid = uid;
+		} else {
+			tb->fastreuseport = 0;
+		}
+	}
+}
 
 /* Obtain a reference to a local port for the given sock,
  * if snum is zero it means select any available local port.
@@ -228,19 +247,10 @@ tb_found:
 			}
 			goto fail_unlock;
 		}
-		if (!reuse)
-			tb->fastreuse = 0;
-		if (!sk->sk_reuseport || !uid_eq(tb->fastuid, uid))
-			tb->fastreuseport = 0;
-	} else {
-		tb->fastreuse = reuse;
-		if (sk->sk_reuseport) {
-			tb->fastreuseport = 1;
-			tb->fastuid = uid;
-		} else {
-			tb->fastreuseport = 0;
-		}
 	}
+
+	inet_csk_update_fastreuse(tb, sk);
+
 success:
 	if (!inet_csk(sk)->icsk_bind_hash)
 		inet_bind_hash(sk, tb, port);
@@ -567,18 +577,8 @@ static void reqsk_timer_handler(unsigned long data)
 	int max_retries, thresh;
 	u8 defer_accept;
 
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-	if (sk_state_load(sk_listener) != TCP_LISTEN && !is_meta_sk(sk_listener))
-		goto drop;
-#else
 	if (sk_state_load(sk_listener) != TCP_LISTEN)
 		goto drop;
-#endif
-
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-	if (is_meta_sk(sk_listener) && !mptcp_can_new_subflow(sk_listener))
-		goto drop;
-#endif
 
 	max_retries = icsk->icsk_syn_retries ? : net->ipv4.sysctl_tcp_synack_retries;
 	thresh = max_retries;
@@ -873,14 +873,7 @@ void inet_csk_listen_stop(struct sock *sk)
 	 */
 	while ((req = reqsk_queue_remove(queue, sk)) != NULL) {
 		struct sock *child = req->sk;
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-		bool mutex_taken = false;
 
-		if (is_meta_sk(child)) {
-			mutex_lock(&tcp_sk(child)->mpcb->mpcb_mutex);
-			mutex_taken = true;
-		}
-#endif
 		local_bh_disable();
 		bh_lock_sock(child);
 		WARN_ON(sock_owned_by_user(child));
@@ -890,10 +883,6 @@ void inet_csk_listen_stop(struct sock *sk)
 		reqsk_put(req);
 		bh_unlock_sock(child);
 		local_bh_enable();
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-		if (mutex_taken)
-			mutex_unlock(&tcp_sk(child)->mpcb->mpcb_mutex);
-#endif
 		sock_put(child);
 
 		cond_resched();

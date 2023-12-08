@@ -36,11 +36,7 @@
 #define RPMH_MAX_MBOXES			2
 #define RPMH_MAX_FAST_RES		32
 #define RPMH_MAX_REQ_IN_BATCH		10
-#ifdef CONFIG_LGE_HANDLE_PANIC_RPMH_TIMEOUT
-#define RPMH_TIMEOUT			msecs_to_jiffies(10000)
-#else
-#define RPMH_TIMEOUT			msecs_to_jiffies(10000)
-#endif
+#define RPMH_TIMEOUT			msecs_to_jiffies(20000)
 
 #define DEFINE_RPMH_MSG_ONSTACK(rc, s, q, c, name)	\
 	struct rpmh_msg name = {			\

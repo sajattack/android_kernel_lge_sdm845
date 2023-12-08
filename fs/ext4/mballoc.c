@@ -349,6 +349,7 @@ MODULE_PARM_DESC(mballoc_debug, "Debugging level for ext4's mballoc");
  *
  */
 static struct kmem_cache *ext4_pspace_cachep;
+static struct kmem_cache *ext4_ac_cachep;
 static struct kmem_cache *ext4_free_data_cachep;
 
 /* We create slab caches for groupinfo data structures based on the
@@ -2386,7 +2387,7 @@ int ext4_mb_alloc_groupinfo(struct super_block *sb, ext4_group_t ngroups)
 		return 0;
 
 	size = roundup_pow_of_two(sizeof(*sbi->s_group_info) * size);
-	new_groupinfo = kvzalloc(size, GFP_KERNEL);
+	new_groupinfo = ext4_kvzalloc(size, GFP_KERNEL);
 	if (!new_groupinfo) {
 		ext4_msg(sb, KERN_ERR, "can't allocate buddy meta group");
 		return -ENOMEM;
@@ -2882,10 +2883,18 @@ int __init ext4_init_mballoc(void)
 	if (ext4_pspace_cachep == NULL)
 		return -ENOMEM;
 
+	ext4_ac_cachep = KMEM_CACHE(ext4_allocation_context,
+				    SLAB_RECLAIM_ACCOUNT);
+	if (ext4_ac_cachep == NULL) {
+		kmem_cache_destroy(ext4_pspace_cachep);
+		return -ENOMEM;
+	}
+
 	ext4_free_data_cachep = KMEM_CACHE(ext4_free_data,
 					   SLAB_RECLAIM_ACCOUNT);
 	if (ext4_free_data_cachep == NULL) {
 		kmem_cache_destroy(ext4_pspace_cachep);
+		kmem_cache_destroy(ext4_ac_cachep);
 		return -ENOMEM;
 	}
 	return 0;
@@ -2899,6 +2908,7 @@ void ext4_exit_mballoc(void)
 	 */
 	rcu_barrier();
 	kmem_cache_destroy(ext4_pspace_cachep);
+	kmem_cache_destroy(ext4_ac_cachep);
 	kmem_cache_destroy(ext4_free_data_cachep);
 	ext4_groupinfo_destroy_slabs();
 }
@@ -2954,7 +2964,7 @@ ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac,
 	block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
 
 	len = EXT4_C2B(sbi, ac->ac_b_ex.fe_len);
-	if (!ext4_data_block_valid(sbi, block, len)) {
+	if (!ext4_inode_block_valid(ac->ac_inode, block, len)) {
 		ext4_error(sb, "Allocating blocks %llu-%llu which overlap "
 			   "fs metadata", block, block+len);
 		/* File system mounted not to panic on error
@@ -3132,6 +3142,15 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 	}
 	size = size >> bsbits;
 	start = start_off >> bsbits;
+
+	/*
+	 * For tiny groups (smaller than 8MB) the chosen allocation
+	 * alignment may be larger than group size. Make sure the
+	 * alignment does not move allocation to a different group which
+	 * makes mballoc fail assertions later.
+	 */
+	start = max(start, rounddown(ac->ac_o_ex.fe_logical,
+			(ext4_lblk_t)EXT4_BLOCKS_PER_GROUP(ac->ac_sb)));
 
 	/* don't cover already allocated blocks in selected range */
 	if (ar->pleft && start <= ar->lleft) {
@@ -4456,7 +4475,7 @@ ext4_fsblk_t ext4_mb_new_blocks(handle_t *handle,
 				struct ext4_allocation_request *ar, int *errp)
 {
 	int freed;
-	struct ext4_allocation_context ac;
+	struct ext4_allocation_context *ac = NULL;
 	struct ext4_sb_info *sbi;
 	struct super_block *sb;
 	ext4_fsblk_t block = 0;
@@ -4509,46 +4528,52 @@ ext4_fsblk_t ext4_mb_new_blocks(handle_t *handle,
 		}
 	}
 
-	memset(&ac, 0, sizeof(ac));
-	*errp = ext4_mb_initialize_context(&ac, ar);
+	ac = kmem_cache_zalloc(ext4_ac_cachep, GFP_NOFS);
+	if (!ac) {
+		ar->len = 0;
+		*errp = -ENOMEM;
+		goto out;
+	}
+
+	*errp = ext4_mb_initialize_context(ac, ar);
 	if (*errp) {
 		ar->len = 0;
 		goto out;
 	}
 
-	ac.ac_op = EXT4_MB_HISTORY_PREALLOC;
-	if (!ext4_mb_use_preallocated(&ac)) {
-		ac.ac_op = EXT4_MB_HISTORY_ALLOC;
-		ext4_mb_normalize_request(&ac, ar);
+	ac->ac_op = EXT4_MB_HISTORY_PREALLOC;
+	if (!ext4_mb_use_preallocated(ac)) {
+		ac->ac_op = EXT4_MB_HISTORY_ALLOC;
+		ext4_mb_normalize_request(ac, ar);
 repeat:
 		/* allocate space in core */
-		*errp = ext4_mb_regular_allocator(&ac);
+		*errp = ext4_mb_regular_allocator(ac);
 		if (*errp)
 			goto discard_and_exit;
 
 		/* as we've just preallocated more space than
 		 * user requested originally, we store allocated
 		 * space in a special descriptor */
-		if (ac.ac_status == AC_STATUS_FOUND &&
-		    ac.ac_o_ex.fe_len < ac.ac_b_ex.fe_len)
-			*errp = ext4_mb_new_preallocation(&ac);
+		if (ac->ac_status == AC_STATUS_FOUND &&
+		    ac->ac_o_ex.fe_len < ac->ac_b_ex.fe_len)
+			*errp = ext4_mb_new_preallocation(ac);
 		if (*errp) {
 		discard_and_exit:
-			ext4_discard_allocated_blocks(&ac);
+			ext4_discard_allocated_blocks(ac);
 			goto errout;
 		}
 	}
-	if (likely(ac.ac_status == AC_STATUS_FOUND)) {
-		*errp = ext4_mb_mark_diskspace_used(&ac, handle, reserv_clstrs);
+	if (likely(ac->ac_status == AC_STATUS_FOUND)) {
+		*errp = ext4_mb_mark_diskspace_used(ac, handle, reserv_clstrs);
 		if (*errp) {
-			ext4_discard_allocated_blocks(&ac);
+			ext4_discard_allocated_blocks(ac);
 			goto errout;
 		} else {
-			block = ext4_grp_offs_to_block(sb, &ac.ac_b_ex);
-			ar->len = ac.ac_b_ex.fe_len;
+			block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
+			ar->len = ac->ac_b_ex.fe_len;
 		}
 	} else {
-		freed  = ext4_mb_discard_preallocations(sb, ac.ac_o_ex.fe_len);
+		freed  = ext4_mb_discard_preallocations(sb, ac->ac_o_ex.fe_len);
 		if (freed)
 			goto repeat;
 		*errp = -ENOSPC;
@@ -4556,12 +4581,14 @@ repeat:
 
 errout:
 	if (*errp) {
-		ac.ac_b_ex.fe_len = 0;
+		ac->ac_b_ex.fe_len = 0;
 		ar->len = 0;
-		ext4_mb_show_ac(&ac);
+		ext4_mb_show_ac(ac);
 	}
-	ext4_mb_release_context(&ac);
+	ext4_mb_release_context(ac);
 out:
+	if (ac)
+		kmem_cache_free(ext4_ac_cachep, ac);
 	if (inquota && ar->len < inquota)
 		dquot_free_block(ar->inode, EXT4_C2B(sbi, inquota - ar->len));
 	if (!ar->len) {
@@ -4633,6 +4660,7 @@ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 				ext4_group_first_block_no(sb, group) +
 				EXT4_C2B(sbi, cluster),
 				"Block already on to-be-freed list");
+			kmem_cache_free(ext4_free_data_cachep, new_entry);
 			return 0;
 		}
 	}
@@ -4707,7 +4735,7 @@ void ext4_free_blocks(handle_t *handle, struct inode *inode,
 
 	sbi = EXT4_SB(sb);
 	if (!(flags & EXT4_FREE_BLOCKS_VALIDATED) &&
-	    !ext4_data_block_valid(sbi, block, count)) {
+	    !ext4_inode_block_valid(inode, block, count)) {
 		ext4_error(sb, "Freeing blocks not in datazone - "
 			   "block = %llu, count = %lu", block, count);
 		goto error_return;
@@ -5213,6 +5241,7 @@ out:
 int ext4_trim_fs(struct super_block *sb, struct fstrim_range *range,
 			unsigned long blkdev_flags)
 {
+	struct request_queue *q = bdev_get_queue(sb->s_bdev);
 	struct ext4_group_info *grp;
 	ext4_group_t group, first_group, last_group;
 	ext4_grpblk_t cnt = 0, first_cluster, last_cluster;
@@ -5231,6 +5260,13 @@ int ext4_trim_fs(struct super_block *sb, struct fstrim_range *range,
 	    start >= max_blks ||
 	    range->len < sb->s_blocksize)
 		return -EINVAL;
+	/* No point to try to trim less than discard granularity */
+	if (range->minlen < q->limits.discard_granularity) {
+		minlen = EXT4_NUM_B2C(EXT4_SB(sb),
+			q->limits.discard_granularity >> sb->s_blocksize_bits);
+		if (minlen > EXT4_CLUSTERS_PER_GROUP(sb))
+			goto out;
+	}
 	if (end >= max_blks)
 		end = max_blks - 1;
 	if (end <= first_data_blk)

@@ -104,9 +104,6 @@
 #include <net/ip_fib.h>
 #include <net/inet_connection_sock.h>
 #include <net/tcp.h>
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-#include <net/mptcp.h>
-#endif
 #include <net/udp.h>
 #include <net/udplite.h>
 #include <net/ping.h>
@@ -167,11 +164,6 @@ void inet_sock_destruct(struct sock *sk)
 		return;
 	}
 
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-	if (sock_flag(sk, SOCK_MPTCP))
-		mptcp_disable_static_key();
-#endif
-
 	WARN_ON(atomic_read(&sk->sk_rmem_alloc));
 	WARN_ON(atomic_read(&sk->sk_wmem_alloc));
 	WARN_ON(sk->sk_wmem_queued);
@@ -179,7 +171,7 @@ void inet_sock_destruct(struct sock *sk)
 
 	kfree(rcu_dereference_protected(inet->inet_opt, 1));
 	dst_release(rcu_dereference_check(sk->sk_dst_cache, 1));
-	dst_release(sk->sk_rx_dst);
+	dst_release(rcu_dereference_protected(sk->sk_rx_dst, 1));
 	sk_refcnt_debug_dec(sk);
 }
 EXPORT_SYMBOL(inet_sock_destruct);
@@ -263,12 +255,9 @@ EXPORT_SYMBOL(inet_listen);
 /*
  *	Create an inet socket.
  */
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-int inet_create(struct net *net, struct socket *sock, int protocol, int kern)
-#else
+
 static int inet_create(struct net *net, struct socket *sock, int protocol,
 		       int kern)
-#endif
 {
 	struct sock *sk;
 	struct inet_protosw *answer;
@@ -719,23 +708,6 @@ int inet_accept(struct socket *sock, struct socket *newsock, int flags)
 	lock_sock(sk2);
 
 	sock_rps_record_flow(sk2);
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-	if (sk2->sk_protocol == IPPROTO_TCP && mptcp(tcp_sk(sk2))) {
-		struct sock *sk_it = sk2;
-
-		mptcp_for_each_sk(tcp_sk(sk2)->mpcb, sk_it)
-			sock_rps_record_flow(sk_it);
-
-		if (tcp_sk(sk2)->mpcb->master_sk) {
-			sk_it = tcp_sk(sk2)->mpcb->master_sk;
-
-			write_lock_bh(&sk_it->sk_callback_lock);
-			sk_it->sk_wq = newsock->wq;
-			sk_it->sk_socket = newsock;
-			write_unlock_bh(&sk_it->sk_callback_lock);
-		}
-	}
-#endif
 	WARN_ON(!((1 << sk2->sk_state) &
 		  (TCPF_ESTABLISHED | TCPF_SYN_RECV |
 		  TCPF_CLOSE_WAIT | TCPF_CLOSE)));
@@ -1184,7 +1156,7 @@ static int inet_sk_reselect_saddr(struct sock *sk)
 	if (new_saddr == old_saddr)
 		return 0;
 
-	if (sock_net(sk)->ipv4.sysctl_ip_dynaddr > 1) {
+	if (READ_ONCE(sock_net(sk)->ipv4.sysctl_ip_dynaddr) > 1) {
 		pr_info("%s(): shifting inet->saddr from %pI4 to %pI4\n",
 			__func__, &old_saddr, &new_saddr);
 	}
@@ -1239,7 +1211,7 @@ int inet_sk_rebuild_header(struct sock *sk)
 		 * Other protocols have to map its equivalent state to TCP_SYN_SENT.
 		 * DCCP maps its DCCP_REQUESTING state to TCP_SYN_SENT. -acme
 		 */
-		if (!sock_net(sk)->ipv4.sysctl_ip_dynaddr ||
+		if (!READ_ONCE(sock_net(sk)->ipv4.sysctl_ip_dynaddr) ||
 		    sk->sk_state != TCP_SYN_SENT ||
 		    (sk->sk_userlocks & SOCK_BINDADDR_LOCK) ||
 		    (err = inet_sk_reselect_saddr(sk)) != 0)
@@ -1300,8 +1272,11 @@ struct sk_buff *inet_gso_segment(struct sk_buff *skb,
 	}
 
 	ops = rcu_dereference(inet_offloads[proto]);
-	if (likely(ops && ops->callbacks.gso_segment))
+	if (likely(ops && ops->callbacks.gso_segment)) {
 		segs = ops->callbacks.gso_segment(skb, features);
+		if (!segs)
+			skb->network_header = skb_mac_header(skb) + nhoff - skb->head;
+	}
 
 	if (IS_ERR_OR_NULL(segs))
 		goto out;
@@ -1881,12 +1856,11 @@ static int __init inet_init(void)
 
 	ip_init();
 
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-	/* We must initialize MPTCP before TCP. */
-	mptcp_init();
-#endif
-
 	tcp_v4_init();
+
+	/* Initialise per-cpu ipv4 mibs */
+	if (init_ipv4_mibs())
+		panic("%s: Cannot init ipv4 mibs\n", __func__);
 
 	/* Setup TCP slab cache for open requests. */
 	tcp_init();
@@ -1916,12 +1890,6 @@ static int __init inet_init(void)
 
 	if (init_inet_pernet_ops())
 		pr_crit("%s: Cannot init ipv4 inet pernet ops\n", __func__);
-	/*
-	 *	Initialise per-cpu ipv4 mibs
-	 */
-
-	if (init_ipv4_mibs())
-		pr_crit("%s: Cannot init ipv4 mibs\n", __func__);
 
 	ipv4_proc_init();
 

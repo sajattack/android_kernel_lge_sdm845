@@ -765,7 +765,6 @@ static const struct file_operations transaction_ops = {
 static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 {
 	char *scon = NULL, *tcon = NULL;
-	char scon_onstack[256], tcon_onstack[256];
 	u32 ssid, tsid;
 	u16 tclass;
 	struct av_decision avd;
@@ -775,22 +774,15 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
-	if (size + 1 > ARRAY_SIZE(scon_onstack)) {
-		length = -ENOMEM;
-		scon = kzalloc(size + 1, GFP_KERNEL);
-		if (!scon)
-			goto out;
+	length = -ENOMEM;
+	scon = kzalloc(size + 1, GFP_KERNEL);
+	if (!scon)
+		goto out;
 
-		length = -ENOMEM;
-		tcon = kzalloc(size + 1, GFP_KERNEL);
-		if (!tcon)
-			goto out;
-	} else {
-		scon = scon_onstack;
-		tcon = tcon_onstack;
-		memset(scon_onstack, 0, size + 1);
-		memset(tcon_onstack, 0, size + 1);
-	}
+	length = -ENOMEM;
+	tcon = kzalloc(size + 1, GFP_KERNEL);
+	if (!tcon)
+		goto out;
 
 	length = -EINVAL;
 	if (sscanf(buf, "%s %s %hu", scon, tcon, &tclass) != 3)
@@ -812,10 +804,8 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 			  avd.auditallow, avd.auditdeny,
 			  avd.seqno, avd.flags);
 out:
-	if (scon != scon_onstack) {
-		kfree(tcon);
-		kfree(scon);
-	}
+	kfree(tcon);
+	kfree(scon);
 	return length;
 }
 
@@ -1311,7 +1301,7 @@ static int sel_make_bools(void)
 			goto out;
 
 		isec->sid = sid;
-		isec->initialized = 1;
+		isec->initialized = LABEL_INITIALIZED;
 		inode->i_fop = &sel_bool_ops;
 		inode->i_ino = i|SEL_BOOL_INO_OFFSET;
 		d_add(dentry, inode);
@@ -1426,6 +1416,7 @@ static struct avc_cache_stats *sel_avc_get_stat_idx(loff_t *idx)
 		*idx = cpu + 1;
 		return &per_cpu(avc_cache_stats, cpu);
 	}
+	(*idx)++;
 	return NULL;
 }
 
@@ -1844,7 +1835,7 @@ static int sel_fill_super(struct super_block *sb, void *data, int silent)
 	isec = (struct inode_security_struct *)inode->i_security;
 	isec->sid = SECINITSID_DEVNULL;
 	isec->sclass = SECCLASS_CHR_FILE;
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 
 	init_special_inode(inode, S_IFCHR | S_IRUGO | S_IWUGO, MKDEV(MEM_MAJOR, 3));
 	d_add(dentry, inode);

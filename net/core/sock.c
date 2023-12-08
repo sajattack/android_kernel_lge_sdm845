@@ -138,13 +138,6 @@
 
 #include <trace/events/sock.h>
 
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-#ifdef CONFIG_MPTCP
-#include <net/mptcp.h>
-#include <net/inet_common.h>
-#endif
-#endif
-
 #include <net/tcp.h>
 #include <net/busy_poll.h>
 
@@ -245,11 +238,7 @@ static const char *const af_family_slock_key_strings[AF_MAX+1] = {
   "slock-AF_NFC"   , "slock-AF_VSOCK"    ,"slock-AF_KCM"       ,
   "slock-AF_QIPCRTR", "slock-AF_MAX"
 };
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-char *const af_family_clock_key_strings[AF_MAX+1] = {
-#else
 static const char *const af_family_clock_key_strings[AF_MAX+1] = {
-#endif
   "clock-AF_UNSPEC", "clock-AF_UNIX"     , "clock-AF_INET"     ,
   "clock-AF_AX25"  , "clock-AF_IPX"      , "clock-AF_APPLETALK",
   "clock-AF_NETROM", "clock-AF_BRIDGE"   , "clock-AF_ATMPVC"   ,
@@ -271,11 +260,7 @@ static const char *const af_family_clock_key_strings[AF_MAX+1] = {
  * sk_callback_lock locking rules are per-address-family,
  * so split the lock classes by using a per-AF key:
  */
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-struct lock_class_key af_callback_keys[AF_MAX];
-#else
 static struct lock_class_key af_callback_keys[AF_MAX];
-#endif
 
 /* Take into consideration the size of the struct sk_buff overhead in the
  * determination of these values, since that is non-constant across
@@ -1026,7 +1011,6 @@ set_rcvbuf:
 }
 EXPORT_SYMBOL(sock_setsockopt);
 
-
 static void cred_to_ucred(struct pid *pid, const struct cred *cred,
 			  struct ucred *ucred)
 {
@@ -1187,7 +1171,11 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 		struct ucred peercred;
 		if (len > sizeof(peercred))
 			len = sizeof(peercred);
+
+		spin_lock(&sk->sk_peer_lock);
 		cred_to_ucred(sk->sk_peer_pid, sk->sk_peer_cred, &peercred);
+		spin_unlock(&sk->sk_peer_lock);
+
 		if (copy_to_user(optval, &peercred, len))
 			return -EFAULT;
 		goto lenout;
@@ -1307,29 +1295,8 @@ lenout:
  *
  * (We also register the sk_lock with the lock validator.)
  */
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-void sock_lock_init(struct sock *sk)
-{
-#ifdef CONFIG_MPTCP
-	/* Reclassify the lock-class for subflows */
-	if (sk->sk_type == SOCK_STREAM && sk->sk_protocol == IPPROTO_TCP)
-		if (mptcp(tcp_sk(sk)) || tcp_sk(sk)->is_master_sk) {
-			sock_lock_init_class_and_name(sk, meta_slock_key_name,
-						      &meta_slock_key,
-						      meta_key_name,
-						      &meta_key);
-
-			/* We don't yet have the mptcp-point.
-			 * Thus we still need inet_sock_destruct
-			 */
-			sk->sk_destruct = inet_sock_destruct;
-			return;
-		}
-#endif
-#else
 static inline void sock_lock_init(struct sock *sk)
 {
-#endif
 	sock_lock_init_class_and_name(sk,
 			af_family_slock_key_strings[sk->sk_family],
 			af_family_slock_keys + sk->sk_family,
@@ -1358,13 +1325,8 @@ static void sock_copy(struct sock *nsk, const struct sock *osk)
 #endif
 }
 
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
-		int family)
-#else
 static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 		int family)
-#endif
 {
 	struct sock *sk;
 	struct kmem_cache *slab;
@@ -1374,17 +1336,8 @@ static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 		sk = kmem_cache_alloc(slab, priority & ~__GFP_ZERO);
 		if (!sk)
 			return sk;
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-		if (priority & __GFP_ZERO) {
-			if (prot->clear_sk)
-				prot->clear_sk(sk, prot->obj_size);
-			else
-				sk_prot_clear_nulls(sk, prot->obj_size);
-		}
-#else
 		if (priority & __GFP_ZERO)
 			sk_prot_clear_nulls(sk, prot->obj_size);
-#endif
 	} else
 		sk = kmalloc(prot->obj_size, priority);
 
@@ -1497,9 +1450,10 @@ static void __sk_destruct(struct rcu_head *head)
 		sk->sk_frag.page = NULL;
 	}
 
-	if (sk->sk_peer_cred)
-		put_cred(sk->sk_peer_cred);
+	/* We do not need to acquire sk->sk_peer_lock, we are the last user. */
+	put_cred(sk->sk_peer_cred);
 	put_pid(sk->sk_peer_pid);
+
 	if (likely(sk->sk_net_refcnt))
 		put_net(sock_net(sk));
 	sk_prot_free(sk->sk_prot_creator, sk);
@@ -1591,9 +1545,6 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		newsk->sk_userlocks	= sk->sk_userlocks & ~SOCK_BINDPORT_LOCK;
 
 		sock_reset_flag(newsk, SOCK_DONE);
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-		sock_reset_flag(newsk, SOCK_MPTCP);
-#endif
 		cgroup_sk_clone(&newsk->sk_cgrp_data);
 		skb_queue_head_init(&newsk->sk_error_queue);
 
@@ -2554,6 +2505,8 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_peer_pid 	=	NULL;
 	sk->sk_peer_cred	=	NULL;
+	spin_lock_init(&sk->sk_peer_lock);
+
 	sk->sk_write_pending	=	0;
 	sk->sk_rcvlowat		=	1;
 	sk->sk_rcvtimeo		=	MAX_SCHEDULE_TIMEOUT;
@@ -2566,7 +2519,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	sk->sk_napi_id		=	0;
-	sk->sk_ll_usec		=	sysctl_net_busy_read;
+	sk->sk_ll_usec		=	READ_ONCE(sysctl_net_busy_read);
 #endif
 
 	sk->sk_max_pacing_rate = ~0U;

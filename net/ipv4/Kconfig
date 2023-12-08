@@ -371,6 +371,16 @@ config INET_IPCOMP
 
 	  If unsure, say Y.
 
+config INET_TABLE_PERTURB_ORDER
+	int "INET: Source port perturbation table size (as power of 2)" if EXPERT
+	default 16
+	help
+	  Source port perturbation table size (as power of 2) for
+	  RFC 6056 3.3.4.  Algorithm 4: Double-Hash Port Selection Algorithm.
+
+	  The default is almost always what you want.
+	  Only change this if you know what you are doing.
+
 config INET_XFRM_TUNNEL
 	tristate
 	select INET_TUNNEL
@@ -459,7 +469,7 @@ if TCP_CONG_ADVANCED
 
 config TCP_CONG_BIC
 	tristate "Binary Increase Congestion (BIC) control"
-	default y
+	default m
 	---help---
 	BIC-TCP is a sender-side only change that ensures a linear RTT
 	fairness under large windows while offering both scalability and
@@ -481,7 +491,7 @@ config TCP_CONG_CUBIC
 
 config TCP_CONG_WESTWOOD
 	tristate "TCP Westwood+"
-	default y
+	default m
 	---help---
 	TCP Westwood+ is a sender-side only modification of the TCP Reno
 	protocol stack that optimizes the performance of TCP congestion
@@ -495,7 +505,7 @@ config TCP_CONG_WESTWOOD
 
 config TCP_CONG_HTCP
         tristate "H-TCP"
-        default y
+        default m
 	---help---
 	H-TCP is a send-side only modifications of the TCP Reno
 	protocol stack that optimizes the performance of TCP
@@ -656,38 +666,6 @@ config TCP_CONG_BBR
 	bufferbloat, policers, or AQM schemes that do not provide a delay
 	signal. It requires the fq ("Fair Queue") pacing packet scheduler.
 
-config TCP_CONG_LIA
-	tristate "MPTCP Linked Increase"
-	depends on MPTCP
-	default n
-	---help---
-	MultiPath TCP Linked Increase Congestion Control
-	To enable it, just put 'lia' in tcp_congestion_control
-
-config TCP_CONG_OLIA
-	tristate "MPTCP Opportunistic Linked Increase"
-	depends on MPTCP
-	default n
-	---help---
-	MultiPath TCP Opportunistic Linked Increase Congestion Control
-	To enable it, just put 'olia' in tcp_congestion_control
-
-config TCP_CONG_WVEGAS
-	tristate "MPTCP WVEGAS CONGESTION CONTROL"
-	depends on MPTCP
-	default n
-	---help---
-	wVegas congestion control for MPTCP
-	To enable it, just put 'wvegas' in tcp_congestion_control
-
-config TCP_CONG_BALIA
-	tristate "MPTCP BALIA CONGESTION CONTROL"
-	depends on MPTCP
-	default n
-	---help---
-	Multipath TCP Balanced Linked Adaptation Congestion Control
-	To enable it, just put 'balia' in tcp_congestion_control
-
 choice
 	prompt "Default TCP congestion control"
 	default DEFAULT_CUBIC
@@ -725,18 +703,6 @@ choice
 	config DEFAULT_BBR
 		bool "BBR" if TCP_CONG_BBR=y
 
-	config DEFAULT_LIA
-		bool "Lia" if TCP_CONG_LIA=y
-
-	config DEFAULT_OLIA
-		bool "Olia" if TCP_CONG_OLIA=y
-
-	config DEFAULT_WVEGAS
-		bool "Wvegas" if TCP_CONG_WVEGAS=y
-
-	config DEFAULT_BALIA
-		bool "Balia" if TCP_CONG_BALIA=y
-
 	config DEFAULT_RENO
 		bool "Reno"
 endchoice
@@ -757,10 +723,6 @@ config DEFAULT_TCP_CONG
 	default "vegas" if DEFAULT_VEGAS
 	default "westwood" if DEFAULT_WESTWOOD
 	default "veno" if DEFAULT_VENO
-	default "lia" if DEFAULT_LIA
-	default "olia" if DEFAULT_OLIA
-	default "wvegas" if DEFAULT_WVEGAS
-	default "balia" if DEFAULT_BALIA
 	default "reno" if DEFAULT_RENO
 	default "dctcp" if DEFAULT_DCTCP
 	default "cdg" if DEFAULT_CDG

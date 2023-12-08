@@ -625,12 +625,12 @@ static void slab_fix(struct kmem_cache *s, char *fmt, ...)
 }
 
 static bool freelist_corrupted(struct kmem_cache *s, struct page *page,
-			       void *freelist, void *nextfree)
+			       void **freelist, void *nextfree)
 {
 	if ((s->flags & SLAB_CONSISTENCY_CHECKS) &&
-	    !check_valid_pointer(s, page, nextfree)) {
-		object_err(s, page, freelist, "Freechain corrupt");
-		freelist = NULL;
+	    !check_valid_pointer(s, page, nextfree) && freelist) {
+		object_err(s, page, *freelist, "Freechain corrupt");
+		*freelist = NULL;
 		slab_fix(s, "Isolate corrupted freechain");
 		return true;
 	}
@@ -683,9 +683,7 @@ static void print_trailer(struct kmem_cache *s, struct page *page, u8 *p)
 #ifdef CONFIG_SLUB_DEBUG_PANIC_ON
 static void slab_panic(const char *cause)
 {
-	/* panic("%s\n", cause); */
-	printk("%s, %s\n", __func__, cause);
-	BUG();
+	panic("%s\n", cause);
 }
 #else
 static inline void slab_panic(const char *cause) {}
@@ -756,11 +754,6 @@ static int check_bytes_and_report(struct kmem_cache *s, struct page *page,
 		end--;
 
 	slab_bug(s, "%s overwritten", what);
-#ifdef CONFIG_LGE_HANDLE_PANIC
-	{
-		pr_err("INFO: physical address: 0x%llx, virtual address: 0x%p\n",(unsigned long long)virt_to_phys((void *)fault),fault);
-	}
-#endif
 	pr_err("INFO: 0x%p-0x%p. First byte 0x%x instead of 0x%x\n",
 					fault, end - 1, fault[0], value);
 	print_trailer(s, page, object);
@@ -855,8 +848,8 @@ static int slab_pad_check(struct kmem_cache *s, struct page *page)
 	while (end > fault && end[-1] == POISON_INUSE)
 		end--;
 
-	print_section(KERN_ERR, "Padding ", end - remainder, remainder);
 	slab_err(s, page, "Padding overwritten. 0x%p-0x%p", fault, end - 1);
+	print_section(KERN_ERR, "Padding ", end - remainder, remainder);
 
 	restore_bytes(s, "slab padding", POISON_INUSE, end - remainder, end);
 	return 0;
@@ -1339,7 +1332,7 @@ static inline void dec_slabs_node(struct kmem_cache *s, int node,
 							int objects) {}
 
 static bool freelist_corrupted(struct kmem_cache *s, struct page *page,
-			       void *freelist, void *nextfree)
+			       void **freelist, void *nextfree)
 {
 	return false;
 }
@@ -1723,7 +1716,7 @@ static void rcu_free_slab(struct rcu_head *h)
 
 static void free_slab(struct kmem_cache *s, struct page *page)
 {
-	if (unlikely(s->flags & SLAB_TYPESAFE_BY_RCU)) {
+	if (unlikely(s->flags & SLAB_DESTROY_BY_RCU)) {
 		struct rcu_head *head;
 
 		if (need_reserve_slab_rcu) {
@@ -2060,7 +2053,7 @@ static void deactivate_slab(struct kmem_cache *s, struct page *page,
 		 * 'freelist' is already corrupted.  So isolate all objects
 		 * starting at 'freelist'.
 		 */
-		if (freelist_corrupted(s, page, freelist, nextfree))
+		if (freelist_corrupted(s, page, &freelist, nextfree))
 			break;
 
 		do {
@@ -2576,6 +2569,7 @@ redo:
 			deactivate_slab(s, page, c->freelist);
 			c->page = NULL;
 			c->freelist = NULL;
+			c->tid = next_tid(c->tid);
 			goto new_slab;
 		}
 	}
@@ -2589,6 +2583,7 @@ redo:
 		deactivate_slab(s, page, c->freelist);
 		c->page = NULL;
 		c->freelist = NULL;
+		c->tid = next_tid(c->tid);
 		goto new_slab;
 	}
 
@@ -2601,6 +2596,7 @@ redo:
 
 	if (!freelist) {
 		c->page = NULL;
+		c->tid = next_tid(c->tid);
 		stat(s, DEACTIVATE_BYPASS);
 		goto new_slab;
 	}
@@ -2625,6 +2621,7 @@ new_slab:
 		c->partial = page->next;
 		stat(s, CPU_PARTIAL_ALLOC);
 		c->freelist = NULL;
+		c->tid = next_tid(c->tid);
 		goto redo;
 	}
 
@@ -2647,6 +2644,7 @@ new_slab:
 	deactivate_slab(s, page, get_freepointer(s, freelist));
 	c->page = NULL;
 	c->freelist = NULL;
+	c->tid = next_tid(c->tid);
 	return freelist;
 }
 
@@ -3017,7 +3015,7 @@ static __always_inline void slab_free(struct kmem_cache *s, struct page *page,
 	 * slab_free_freelist_hook() could have put the items into quarantine.
 	 * If so, no need to free them.
 	 */
-	if (s->flags & SLAB_KASAN && !(s->flags & SLAB_TYPESAFE_BY_RCU))
+	if (s->flags & SLAB_KASAN && !(s->flags & SLAB_DESTROY_BY_RCU))
 		return;
 	do_slab_free(s, page, head, tail, cnt, addr);
 }
@@ -3496,7 +3494,7 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
 	 * the slab may touch the object after free or before allocation
 	 * then we should never poison the object itself.
 	 */
-	if ((flags & SLAB_POISON) && !(flags & SLAB_TYPESAFE_BY_RCU) &&
+	if ((flags & SLAB_POISON) && !(flags & SLAB_DESTROY_BY_RCU) &&
 			!s->ctor)
 		s->flags |= __OBJECT_POISON;
 	else
@@ -3518,7 +3516,7 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
 	 */
 	s->inuse = size;
 
-	if (((flags & (SLAB_TYPESAFE_BY_RCU | SLAB_POISON)) ||
+	if (((flags & (SLAB_DESTROY_BY_RCU | SLAB_POISON)) ||
 		s->ctor)) {
 		/*
 		 * Relocate free pointer after the object if it is not
@@ -3600,7 +3598,7 @@ static int kmem_cache_open(struct kmem_cache *s, unsigned long flags)
 	s->flags = kmem_cache_flags(s->size, flags, s->name, s->ctor);
 	s->reserved = 0;
 
-	if (need_reserve_slab_rcu && (s->flags & SLAB_TYPESAFE_BY_RCU))
+	if (need_reserve_slab_rcu && (s->flags & SLAB_DESTROY_BY_RCU))
 		s->reserved = sizeof(struct rcu_head);
 
 	if (!calculate_sizes(s, -1))
@@ -5079,7 +5077,7 @@ SLAB_ATTR_RO(cache_dma);
 
 static ssize_t destroy_by_rcu_show(struct kmem_cache *s, char *buf)
 {
-	return sprintf(buf, "%d\n", !!(s->flags & SLAB_TYPESAFE_BY_RCU));
+	return sprintf(buf, "%d\n", !!(s->flags & SLAB_DESTROY_BY_RCU));
 }
 SLAB_ATTR_RO(destroy_by_rcu);
 
@@ -5635,7 +5633,8 @@ static char *create_unique_id(struct kmem_cache *s)
 	char *name = kmalloc(ID_STR_LENGTH, GFP_KERNEL);
 	char *p = name;
 
-	BUG_ON(!name);
+	if (!name)
+		return ERR_PTR(-ENOMEM);
 
 	*p++ = ':';
 	/*
@@ -5689,14 +5688,14 @@ static int sysfs_slab_add(struct kmem_cache *s)
 		 * for the symlinks.
 		 */
 		name = create_unique_id(s);
+		if (IS_ERR(name))
+			return PTR_ERR(name);
 	}
 
 	s->kobj.kset = kset;
 	err = kobject_init_and_add(&s->kobj, &slab_ktype, NULL, "%s", name);
-	if (err) {
-		kobject_put(&s->kobj);
+	if (err)
 		goto out;
-	}
 
 	err = sysfs_create_group(&s->kobj, &slab_attr_group);
 	if (err)

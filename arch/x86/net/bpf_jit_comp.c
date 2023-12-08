@@ -893,7 +893,7 @@ xadd:			if (is_imm8(insn->off))
 			}
 			break;
 
-		case BPF_JMP | BPF_TAIL_CALL:
+		case BPF_JMP | BPF_CALL | BPF_X:
 			emit_bpf_tail_call(&prog);
 			break;
 
@@ -1082,7 +1082,16 @@ common_load:
 		}
 
 		if (image) {
-			if (unlikely(proglen + ilen > oldproglen)) {
+			/*
+			 * When populating the image, assert that:
+			 *
+			 *  i) We do not write beyond the allocated space, and
+			 * ii) addrs[i] did not change from the prior run, in order
+			 *     to validate assumptions made for computing branch
+			 *     displacements.
+			 */
+			if (unlikely(proglen + ilen > oldproglen ||
+				     proglen + ilen != addrs[i])) {
 				pr_err("bpf_jit_compile fatal error\n");
 				return -EFAULT;
 			}

@@ -50,6 +50,7 @@ $(warning LSE atomics not supported by binutils)
   endif
 endif
 
+<<<<<<< HEAD
 ifeq ($(CONFIG_ARCH_SDM845), y)
 ifeq ($(cc-name),clang)
 KBUILD_CFLAGS   += -mcpu=cortex-a55+crypto -mtune=cortex-a55
@@ -76,6 +77,10 @@ ifeq ($(CONFIG_COMPAT_VDSO), y)
   else ifeq ($(cc-name),clang)
     export CLANG_TRIPLE_ARM32 ?= $(CROSS_COMPILE_ARM32)
     export CLANG_TARGET_ARM32 := --target=$(notdir $(CLANG_TRIPLE_ARM32:%-=%))
+    export GCC_TOOLCHAIN32_DIR := $(dir $(shell which $(CROSS_COMPILE_ARM32)ld))
+    export GCC_TOOLCHAIN32 := $(realpath $(GCC_TOOLCHAIN32_DIR)/..)
+    export CLANG_PREFIX32 := --prefix=$(GCC_TOOLCHAIN32_DIR)
+    export CLANG_GCC32_TC := --gcc-toolchain=$(GCC_TOOLCHAIN32)
     export CONFIG_VDSO32 := y
     vdso32 := -DCONFIG_VDSO32=1
   else ifeq ($(shell which $(CROSS_COMPILE_ARM32)$(cc-name) 2> /dev/null),)
@@ -87,19 +92,11 @@ ifeq ($(CONFIG_COMPAT_VDSO), y)
   endif
 endif
 
-ifeq ($(cc-name),clang)
-# This is a workaround for https://bugs.llvm.org/show_bug.cgi?id=30792.
-# TODO: revert when this is fixed in LLVM.
-KBUILD_CFLAGS	+= -mno-implicit-float
-else
-KBUILD_CFLAGS	+= -mgeneral-regs-only
-endif
-KBUILD_CFLAGS	+= $(lseinstr) $(vdso32)
+KBUILD_CFLAGS	+= -mgeneral-regs-only $(lseinstr) $(vdso32)
 KBUILD_CFLAGS	+= -fno-asynchronous-unwind-tables
 KBUILD_CFLAGS	+= $(call cc-option, -mpc-relative-literal-loads)
 KBUILD_CFLAGS	+= -fno-pic
 KBUILD_AFLAGS	+= $(lseinstr) $(vdso32)
-
 KBUILD_CFLAGS	+= $(call cc-ifversion, -ge, 0500, -DCONFIG_ARCH_SUPPORTS_INT128)
 
 ifeq ($(CONFIG_CPU_BIG_ENDIAN), y)

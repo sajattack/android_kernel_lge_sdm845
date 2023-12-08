@@ -40,19 +40,6 @@
 #include <asm/vdso.h>
 #include <asm/vdso_datapage.h>
 
-#ifdef USE_SYSCALL
-#if defined(__LP64__)
-static int enable_64 = 1;
-module_param(enable_64, int, 0600);
-MODULE_PARM_DESC(enable_64, "enable vDSO for aarch64 0=off");
-#endif
-#if (!defined(__LP64) || (defined(CONFIG_COMPAT) && defined(CONFIG_VDSO32)))
-static int enable_32 = 1;
-module_param(enable_32, int, 0600);
-MODULE_PARM_DESC(enable_32, "enable vDSO for aarch64 0=off");
-#endif
-#endif
-
 struct vdso_mappings {
 	unsigned long num_code_pages;
 	struct vm_special_mapping data_mapping;
@@ -192,8 +179,6 @@ static int __init vdso_mappings_init(const char *name,
 	}
 
 	vdso_pages = (code_end - code_start) >> PAGE_SHIFT;
-	pr_info("%s: %ld pages (%ld code @ %p, %ld data @ %p)\n",
-		name, vdso_pages + 1, vdso_pages, code_start, 1L, vdso_data);
 
 	/* Allocate the vDSO pagelist, plus a page for the data. */
 	/*
@@ -367,14 +352,7 @@ void update_vsyscall(struct timekeeper *tk)
 	vdso_data->wtm_clock_sec		= tk->wall_to_monotonic.tv_sec;
 	vdso_data->wtm_clock_nsec		= tk->wall_to_monotonic.tv_nsec;
 
-	/* Read without the seqlock held by clock_getres() */
-	WRITE_ONCE(vdso_data->hrtimer_res, hrtimer_resolution);
-
-#ifdef USE_SYSCALL
-	if (!(use_syscall & USE_SYSCALL)) {
-#else
 	if (!use_syscall) {
-#endif
 		struct timespec btm = ktime_to_timespec(tk->offs_boot);
 
 		/* tkr_mono.cycle_last == tkr_raw.cycle_last */

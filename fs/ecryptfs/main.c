@@ -125,7 +125,7 @@ static int ecryptfs_init_lower_file(struct dentry *dentry,
 	rc = ecryptfs_privileged_open(lower_file, path->dentry, path->mnt,
 				      cred);
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "Error opening lower file "
+		printk(KERN_ERR "Error opening lower file "
 		       "for lower_dentry [0x%p] and lower_mnt [0x%p]; "
 		       "rc = [%d]\n", path->dentry, path->mnt, rc);
 		(*lower_file) = NULL;
@@ -175,10 +175,6 @@ enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
        ecryptfs_opt_fn_cipher, ecryptfs_opt_fn_cipher_key_bytes,
        ecryptfs_opt_unlink_sigs, ecryptfs_opt_mount_auth_tok_only,
        ecryptfs_opt_check_dev_ruid,
-#ifdef FEATURE_SDCARD_ENCRYPTION
-       ecryptfs_opt_decryption_only,
-       ecryptfs_opt_media_exception,
-#endif
        ecryptfs_opt_err };
 
 static const match_table_t tokens = {
@@ -196,10 +192,6 @@ static const match_table_t tokens = {
 	{ecryptfs_opt_unlink_sigs, "ecryptfs_unlink_sigs"},
 	{ecryptfs_opt_mount_auth_tok_only, "ecryptfs_mount_auth_tok_only"},
 	{ecryptfs_opt_check_dev_ruid, "ecryptfs_check_dev_ruid"},
-#ifdef FEATURE_SDCARD_ENCRYPTION
-	{ecryptfs_opt_decryption_only, "decryption_only"},
-	{ecryptfs_opt_media_exception, "media_exception=%s"},
-#endif
 	{ecryptfs_opt_err, NULL}
 };
 
@@ -217,7 +209,7 @@ static int ecryptfs_init_global_auth_toks(
 			&global_auth_tok->global_auth_tok_key, &auth_tok,
 			global_auth_tok->sig);
 		if (rc) {
-			ecryptfs_printk(KERN_ERR, "Could not find valid key in user "
+			printk(KERN_ERR "Could not find valid key in user "
 			       "session keyring for sig specified in mount "
 			       "option: [%s]\n", global_auth_tok->sig);
 			global_auth_tok->flags |= ECRYPTFS_AUTH_TOK_INVALID;
@@ -231,21 +223,11 @@ out:
 	return rc;
 }
 
-#ifdef FEATURE_SDCARD_ENCRYPTION
-static void ecryptfs_init_mount_crypt_stat(
-	struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
-	struct ecryptfs_mount_sd_crypt_stat *mount_sd_crypt_stat)
-#else
 static void ecryptfs_init_mount_crypt_stat(
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat)
-#endif
 {
 	memset((void *)mount_crypt_stat, 0,
 	       sizeof(struct ecryptfs_mount_crypt_stat));
-#ifdef FEATURE_SDCARD_ENCRYPTION
-	memset((void *)mount_sd_crypt_stat, 0,
-			sizeof(struct ecryptfs_mount_sd_crypt_stat));
-#endif
 	INIT_LIST_HEAD(&mount_crypt_stat->global_auth_tok_list);
 	mutex_init(&mount_crypt_stat->global_auth_tok_list_mutex);
 	mount_crypt_stat->flags |= ECRYPTFS_MOUNT_CRYPT_STAT_INITIALIZED;
@@ -285,10 +267,6 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	int fn_cipher_key_bytes_set = 0;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
 		&sbi->mount_crypt_stat;
-#ifdef FEATURE_SDCARD_ENCRYPTION
-	struct ecryptfs_mount_sd_crypt_stat *mount_sd_crypt_stat =
-		&sbi->mount_sd_crypt_stat;
-#endif
 	substring_t args[MAX_OPT_ARGS];
 	int token;
 	char *sig_src;
@@ -308,11 +286,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 		rc = -EINVAL;
 		goto out;
 	}
-#ifdef FEATURE_SDCARD_ENCRYPTION
-	ecryptfs_init_mount_crypt_stat(mount_crypt_stat, mount_sd_crypt_stat);
-#else
 	ecryptfs_init_mount_crypt_stat(mount_crypt_stat);
-#endif
 	while ((p = strsep(&options, ",")) != NULL) {
 		if (!*p)
 			continue;
@@ -324,7 +298,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			rc = ecryptfs_add_global_auth_tok(mount_crypt_stat,
 							  sig_src, 0);
 			if (rc) {
-				ecryptfs_printk(KERN_ERR, "Error attempting to register "
+				printk(KERN_ERR "Error attempting to register "
 				       "global sig; rc = [%d]\n", rc);
 				goto out;
 			}
@@ -376,7 +350,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 				mount_crypt_stat->global_default_fnek_sig,
 				ECRYPTFS_AUTH_TOK_FNEK);
 			if (rc) {
-				ecryptfs_printk(KERN_ERR, "Error attempting to register "
+				printk(KERN_ERR "Error attempting to register "
 				       "global fnek sig [%s]; rc = [%d]\n",
 				       mount_crypt_stat->global_default_fnek_sig,
 				       rc);
@@ -412,21 +386,12 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			mount_crypt_stat->flags |=
 				ECRYPTFS_GLOBAL_MOUNT_AUTH_TOK_ONLY;
 			break;
-#ifdef FEATURE_SDCARD_ENCRYPTION
-		case ecryptfs_opt_decryption_only:
-			mount_sd_crypt_stat->flags |= ECRYPTFS_DECRYPTION_ONLY;
-			break;
-		case ecryptfs_opt_media_exception:
-			mount_sd_crypt_stat->flags |= ECRYPTFS_MEDIA_EXCEPTION;
-			set_media_ext(args[0].from);
-			break;
-#endif
 		case ecryptfs_opt_check_dev_ruid:
 			*check_ruid = 1;
 			break;
 		case ecryptfs_opt_err:
 		default:
-			ecryptfs_printk(KERN_WARNING,
+			printk(KERN_WARNING
 			       "%s: eCryptfs: unrecognized option [%s]\n",
 			       __func__, p);
 		}
@@ -474,7 +439,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			NULL, mount_crypt_stat->global_default_cipher_name,
 			mount_crypt_stat->global_default_cipher_key_size);
 		if (rc) {
-			ecryptfs_printk(KERN_ERR, "Error attempting to initialize "
+			printk(KERN_ERR "Error attempting to initialize "
 			       "cipher with name = [%s] and key size = [%td]; "
 			       "rc = [%d]\n",
 			       mount_crypt_stat->global_default_cipher_name,
@@ -492,7 +457,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 			NULL, mount_crypt_stat->global_default_fn_cipher_name,
 			mount_crypt_stat->global_default_fn_cipher_key_bytes);
 		if (rc) {
-			ecryptfs_printk(KERN_ERR, "Error attempting to initialize "
+			printk(KERN_ERR "Error attempting to initialize "
 			       "cipher with name = [%s] and key size = [%td]; "
 			       "rc = [%d]\n",
 			       mount_crypt_stat->global_default_fn_cipher_name,
@@ -506,7 +471,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 	mutex_unlock(&key_tfm_list_mutex);
 	rc = ecryptfs_init_global_auth_toks(mount_crypt_stat);
 	if (rc)
-		ecryptfs_printk(KERN_WARNING, "One or more global auth toks could not "
+		printk(KERN_WARNING "One or more global auth toks could not "
 		       "properly register; rc = [%d]\n", rc);
 out:
 	return rc;
@@ -538,6 +503,12 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	sbi = kmem_cache_zalloc(ecryptfs_sb_info_cache, GFP_KERNEL);
 	if (!sbi) {
 		rc = -ENOMEM;
+		goto out;
+	}
+
+	if (!dev_name) {
+		rc = -EINVAL;
+		err = "Device name cannot be null";
 		goto out;
 	}
 
@@ -575,7 +546,7 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	}
 	if (path.dentry->d_sb->s_type == &ecryptfs_fs_type) {
 		rc = -EINVAL;
-		ecryptfs_printk(KERN_ERR, "Mount on filesystem of type "
+		printk(KERN_ERR "Mount on filesystem of type "
 			"eCryptfs explicitly disallowed due to "
 			"known incompatibilities\n");
 		goto out_free;
@@ -583,7 +554,7 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 
 	if (check_ruid && !uid_eq(d_inode(path.dentry)->i_uid, current_uid())) {
 		rc = -EPERM;
-		ecryptfs_printk(KERN_ERR, "Mount of device (uid: %d) not owned by "
+		printk(KERN_ERR "Mount of device (uid: %d) not owned by "
 		       "requested user (uid: %d)\n",
 			i_uid_read(d_inode(path.dentry)),
 			from_kuid(&init_user_ns, current_uid()));
@@ -651,7 +622,7 @@ out:
 		ecryptfs_destroy_mount_crypt_stat(&sbi->mount_crypt_stat);
 		kmem_cache_free(ecryptfs_sb_info_cache, sbi);
 	}
-	ecryptfs_printk(KERN_ERR, "%s; rc = [%d]\n", err, rc);
+	printk(KERN_ERR "%s; rc = [%d]\n", err, rc);
 	return ERR_PTR(rc);
 }
 
@@ -829,13 +800,13 @@ static int do_sysfs_registration(void)
 
 	ecryptfs_kobj = kobject_create_and_add("ecryptfs", fs_kobj);
 	if (!ecryptfs_kobj) {
-		ecryptfs_printk(KERN_ERR, "Unable to create ecryptfs kset\n");
+		printk(KERN_ERR "Unable to create ecryptfs kset\n");
 		rc = -ENOMEM;
 		goto out;
 	}
 	rc = sysfs_create_group(ecryptfs_kobj, &attr_group);
 	if (rc) {
-		ecryptfs_printk(KERN_ERR,
+		printk(KERN_ERR
 		       "Unable to create ecryptfs version attributes\n");
 		kobject_put(ecryptfs_kobj);
 	}
@@ -866,41 +837,41 @@ static int __init ecryptfs_init(void)
 	}
 	rc = ecryptfs_init_kmem_caches();
 	if (rc) {
-		ecryptfs_printk(KERN_ERR,
+		printk(KERN_ERR
 		       "Failed to allocate one or more kmem_cache objects\n");
 		goto out;
 	}
 	rc = do_sysfs_registration();
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "sysfs registration failed\n");
+		printk(KERN_ERR "sysfs registration failed\n");
 		goto out_free_kmem_caches;
 	}
 	rc = ecryptfs_init_kthread();
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "%s: kthread initialization failed; "
+		printk(KERN_ERR "%s: kthread initialization failed; "
 		       "rc = [%d]\n", __func__, rc);
 		goto out_do_sysfs_unregistration;
 	}
 	rc = ecryptfs_init_messaging();
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "Failure occurred while attempting to "
+		printk(KERN_ERR "Failure occurred while attempting to "
 				"initialize the communications channel to "
 				"ecryptfsd\n");
 		goto out_destroy_kthread;
 	}
 	rc = ecryptfs_init_crypto();
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "Failure whilst attempting to init crypto; "
+		printk(KERN_ERR "Failure whilst attempting to init crypto; "
 		       "rc = [%d]\n", rc);
 		goto out_release_messaging;
 	}
 	rc = register_filesystem(&ecryptfs_fs_type);
 	if (rc) {
-		ecryptfs_printk(KERN_ERR, "Failed to register filesystem\n");
+		printk(KERN_ERR "Failed to register filesystem\n");
 		goto out_destroy_crypto;
 	}
 	if (ecryptfs_verbosity > 0)
-		ecryptfs_printk(KERN_CRIT, "eCryptfs verbosity set to %d. Secret values "
+		printk(KERN_CRIT "eCryptfs verbosity set to %d. Secret values "
 			"will be written to the syslog!\n", ecryptfs_verbosity);
 
 	goto out;
@@ -924,7 +895,7 @@ static void __exit ecryptfs_exit(void)
 
 	rc = ecryptfs_destroy_crypto();
 	if (rc)
-		ecryptfs_printk(KERN_ERR, "Failure whilst attempting to destroy crypto; "
+		printk(KERN_ERR "Failure whilst attempting to destroy crypto; "
 		       "rc = [%d]\n", rc);
 	ecryptfs_release_messaging();
 	ecryptfs_destroy_kthread();

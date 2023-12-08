@@ -93,7 +93,6 @@
 #include <linux/seq_file.h>
 #include <linux/export.h>
 
-#include <net/patchcodeid.h>
 /* Set to 3 to get tracing... */
 #define ACONF_DEBUG 2
 
@@ -148,8 +147,7 @@ static inline void addrconf_sysctl_unregister(struct inet6_dev *idev)
 }
 #endif
 
-static void ipv6_regen_rndid(struct inet6_dev *idev);
-static void ipv6_try_regen_rndid(struct inet6_dev *idev, struct in6_addr *tmpaddr);
+static void ipv6_gen_rnd_iid(struct in6_addr *addr);
 
 static int ipv6_generate_eui64(u8 *eui, struct net_device *dev);
 static int ipv6_count_addresses(struct inet6_dev *idev);
@@ -386,8 +384,6 @@ static struct inet6_dev *ipv6_add_dev(struct net_device *dev)
 
 	if (ndev->cnf.stable_secret.initialized)
 		ndev->cnf.addr_gen_mode = IN6_ADDR_GEN_MODE_STABLE_PRIVACY;
-	else
-		ndev->cnf.addr_gen_mode = ipv6_devconf_dflt.addr_gen_mode;
 
 	ndev->cnf.mtu6 = dev->mtu;
 	ndev->nd_parms = neigh_parms_alloc(dev, &nd_tbl);
@@ -438,8 +434,7 @@ static struct inet6_dev *ipv6_add_dev(struct net_device *dev)
 	    dev->type == ARPHRD_SIT ||
 	    dev->type == ARPHRD_NONE) {
 		ndev->cnf.use_tempaddr = -1;
-	} else
-		ipv6_regen_rndid(ndev);
+	}
 
 	ndev->token = in6addr_any;
 
@@ -907,9 +902,6 @@ void inet6_ifa_finish_destroy(struct inet6_ifaddr *ifp)
 
 	kfree_rcu(ifp, rcu);
 }
-#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
-EXPORT_SYMBOL(inet6_ifa_finish_destroy);
-#endif
 
 static void
 ipv6_link_dev_addr(struct inet6_dev *idev, struct inet6_ifaddr *ifp)
@@ -1190,28 +1182,22 @@ out:
 	in6_ifa_put(ifp);
 }
 
-static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp, struct inet6_ifaddr *ift)
+static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp)
 {
 	struct inet6_dev *idev = ifp->idev;
-	struct in6_addr addr, *tmpaddr;
 	unsigned long tmp_prefered_lft, tmp_valid_lft, tmp_tstamp, age;
 	unsigned long regen_advance;
-	int tmp_plen;
-	int ret = 0;
-	u32 addr_flags;
 	unsigned long now = jiffies;
-	long max_desync_factor;
 	s32 cnf_temp_preferred_lft;
+	struct inet6_ifaddr *ift;
+	long max_desync_factor;
+	struct in6_addr addr;
+	int ret = 0;
+	int tmp_plen;
+	u32 addr_flags;
 
 	write_lock_bh(&idev->lock);
-	if (ift) {
-		spin_lock_bh(&ift->lock);
-		memcpy(&addr.s6_addr[8], &ift->addr.s6_addr[8], 8);
-		spin_unlock_bh(&ift->lock);
-		tmpaddr = &addr;
-	} else {
-		tmpaddr = NULL;
-	}
+
 retry:
 	in6_dev_hold(idev);
 	if (idev->cnf.use_tempaddr <= 0) {
@@ -1234,8 +1220,8 @@ retry:
 	}
 	in6_ifa_hold(ifp);
 	memcpy(addr.s6_addr, ifp->addr.s6_addr, 8);
-	ipv6_try_regen_rndid(idev, tmpaddr);
-	memcpy(&addr.s6_addr[8], idev->rndid, 8);
+	ipv6_gen_rnd_iid(&addr);
+
 	age = (now - ifp->tstamp) / HZ;
 
 	regen_advance = idev->cnf.regen_max_retry *
@@ -1299,7 +1285,6 @@ retry:
 		in6_ifa_put(ifp);
 		in6_dev_put(idev);
 		pr_info("%s: retry temporary address regeneration\n", __func__);
-		tmpaddr = &addr;
 		write_lock_bh(&idev->lock);
 		goto retry;
 	}
@@ -1898,7 +1883,7 @@ static void addrconf_dad_stop(struct inet6_ifaddr *ifp, int dad_failed)
 		if (ifpub) {
 			in6_ifa_hold(ifpub);
 			spin_unlock_bh(&ifp->lock);
-			ipv6_create_tempaddr(ifpub, ifp);
+			ipv6_create_tempaddr(ifpub);
 			in6_ifa_put(ifpub);
 		} else {
 			spin_unlock_bh(&ifp->lock);
@@ -2190,40 +2175,38 @@ static int ipv6_inherit_eui64(u8 *eui, struct inet6_dev *idev)
 	return err;
 }
 
-/* (re)generation of randomized interface identifier (RFC 3041 3.2, 3.5) */
-static void ipv6_regen_rndid(struct inet6_dev *idev)
+/* Generation of a randomized Interface Identifier
+ * draft-ietf-6man-rfc4941bis, Section 3.3.1
+ */
+
+static void ipv6_gen_rnd_iid(struct in6_addr *addr)
 {
 regen:
-	get_random_bytes(idev->rndid, sizeof(idev->rndid));
-	idev->rndid[0] &= ~0x02;
+	get_random_bytes(&addr->s6_addr[8], 8);
 
-	/*
-	 * <draft-ietf-ipngwg-temp-addresses-v2-00.txt>:
-	 * check if generated address is not inappropriate
+	/* <draft-ietf-6man-rfc4941bis-08.txt>, Section 3.3.1:
+	 * check if generated address is not inappropriate:
 	 *
-	 *  - Reserved subnet anycast (RFC 2526)
-	 *	11111101 11....11 1xxxxxxx
-	 *  - ISATAP (RFC4214) 6.1
-	 *	00-00-5E-FE-xx-xx-xx-xx
-	 *  - value 0
-	 *  - XXX: already assigned to an address on the device
+	 * - Reserved IPv6 Interface Identifers
+	 * - XXX: already assigned to an address on the device
 	 */
-	if (idev->rndid[0] == 0xfd &&
-	    (idev->rndid[1]&idev->rndid[2]&idev->rndid[3]&idev->rndid[4]&idev->rndid[5]&idev->rndid[6]) == 0xff &&
-	    (idev->rndid[7]&0x80))
-		goto regen;
-	if ((idev->rndid[0]|idev->rndid[1]) == 0) {
-		if (idev->rndid[2] == 0x5e && idev->rndid[3] == 0xfe)
-			goto regen;
-		if ((idev->rndid[2]|idev->rndid[3]|idev->rndid[4]|idev->rndid[5]|idev->rndid[6]|idev->rndid[7]) == 0x00)
-			goto regen;
-	}
-}
 
-static void  ipv6_try_regen_rndid(struct inet6_dev *idev, struct in6_addr *tmpaddr)
-{
-	if (tmpaddr && memcmp(idev->rndid, &tmpaddr->s6_addr[8], 8) == 0)
-		ipv6_regen_rndid(idev);
+	/* Subnet-router anycast: 0000:0000:0000:0000 */
+	if (!(addr->s6_addr32[2] | addr->s6_addr32[3]))
+		goto regen;
+
+	/* IANA Ethernet block: 0200:5EFF:FE00:0000-0200:5EFF:FE00:5212
+	 * Proxy Mobile IPv6:   0200:5EFF:FE00:5213
+	 * IANA Ethernet block: 0200:5EFF:FE00:5214-0200:5EFF:FEFF:FFFF
+	 */
+	if (ntohl(addr->s6_addr32[2]) == 0x02005eff &&
+	    (ntohl(addr->s6_addr32[3]) & 0Xff000000) == 0xfe000000)
+		goto regen;
+
+	/* Reserved subnet anycast addresses */
+	if (ntohl(addr->s6_addr32[2]) == 0xfdffffff &&
+	    ntohl(addr->s6_addr32[3]) >= 0Xffffff80)
+		goto regen;
 }
 
 u32 addrconf_rt_table(const struct net_device *dev, u32 default_table) {
@@ -2332,6 +2315,7 @@ static void addrconf_add_mroute(struct net_device *dev)
 		.fc_dst_len = 8,
 		.fc_flags = RTF_UP,
 		.fc_nlinfo.nl_net = dev_net(dev),
+		.fc_protocol = RTPROT_KERNEL,
 	};
 
 	ipv6_addr_set(&cfg.fc_dst, htonl(0xFF000000), 0, 0, 0);
@@ -2420,7 +2404,7 @@ static void manage_tempaddrs(struct inet6_dev *idev,
 		 * no temporary address currently exists.
 		 */
 		read_unlock_bh(&idev->lock);
-		ipv6_create_tempaddr(ifp, NULL);
+		ipv6_create_tempaddr(ifp);
 	} else {
 		read_unlock_bh(&idev->lock);
 	}
@@ -3194,6 +3178,10 @@ static void addrconf_addr_gen(struct inet6_dev *idev, bool prefix_route)
 	if (netif_is_l3_master(idev->dev))
 		return;
 
+	/* no link local addresses on devices flagged as slaves */
+	if (idev->dev->flags & IFF_SLAVE)
+		return;
+
 	ipv6_addr_set(&addr, htonl(0xFE800000), 0, 0, 0);
 
 	switch (idev->cnf.addr_gen_mode) {
@@ -3589,6 +3577,7 @@ static int addrconf_ifdown(struct net_device *dev, int how)
 	struct list_head del_list;
 	int _keep_addr;
 	bool keep_addr;
+	bool was_ready;
 	int state, i;
 
 	ASSERT_RTNL();
@@ -3652,7 +3641,10 @@ restart:
 
 	addrconf_del_rs_timer(idev);
 
-	/* Step 2: clear flags for stateless addrconf */
+	/* Step 2: clear flags for stateless addrconf, repeated down
+	 *         detection
+	 */
+	was_ready = idev->if_flags & IF_READY;
 	if (!how)
 		idev->if_flags &= ~(IF_RS_SENT|IF_RA_RCVD|IF_READY);
 
@@ -3739,7 +3731,7 @@ restart:
 	if (how) {
 		ipv6_ac_destroy_dev(idev);
 		ipv6_mc_destroy_dev(idev);
-	} else {
+	} else if (was_ready) {
 		ipv6_mc_down(idev);
 	}
 
@@ -3810,28 +3802,11 @@ static void addrconf_dad_kick(struct inet6_ifaddr *ifp)
 	unsigned long rand_num;
 	struct inet6_dev *idev = ifp->idev;
 
-	if (ifp->flags & IFA_F_OPTIMISTIC) {
+	if (ifp->flags & IFA_F_OPTIMISTIC)
 		rand_num = 0;
-		printk("addrconf_dad_kick no wait rand_num 0\n");
-	} else {
+	else
 		rand_num = prandom_u32() % (idev->cnf.rtr_solicit_delay ? : 1);
-		printk("addrconf_dad_kick wait rand_num\n");
-#ifdef CONFIG_IPV6_OPTIMISTIC_DAD
-/* 2017-11-24 samuel.seo@lge.com, LGP_DATA_IMPROVE_QCT_EPDG_CONNECTION_TIME2 [START] */
-#ifdef CONFIG_LGP_DATA_IMPROVE_QCT_EPDG_CONNECTION_TIME2
-		patch_code_id("LPCP-2334@y@c@vmlinux@addrconf.c@1");
-		if (idev->dev != NULL && strlen(idev->dev->name) > 5 && !strncmp(idev->dev->name,"rmnet",5)) {
-			printk("addrconf_dad_kick it's rmnet!\n");
-			if (ifp && !dev_net(idev->dev)->ipv6.devconf_all->forwarding) {
-				printk("addrconf_dad_kick forwarding disabled\n");
-				printk("addrconf_dad_kick rmnet case. set rand_num 0 !!\n");
-				rand_num = 0;
-			}
-		}
-#endif
-/* 2017-11-24 samuel.seo@lge.com, LGP_DATA_IMPROVE_QCT_EPDG_CONNECTION_TIME2 [END] */
-#endif
-	}
+
 	ifp->dad_probes = idev->cnf.dad_transmits;
 	addrconf_mod_dad_work(ifp, rand_num);
 }
@@ -4056,7 +4031,8 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id)
 	send_rs = send_mld &&
 		  ipv6_accept_ra(ifp->idev) &&
 		  ifp->idev->cnf.rtr_solicits != 0 &&
-		  (dev->flags&IFF_LOOPBACK) == 0;
+		  (dev->flags & IFF_LOOPBACK) == 0 &&
+		  (dev->type != ARPHRD_TUNNEL);
 	read_unlock_bh(&ifp->idev->lock);
 
 	/* While dad is in progress mld report's source address is in6_addrany.
@@ -4369,7 +4345,7 @@ restart:
 						spin_lock(&ifpub->lock);
 						ifpub->regen_count = 0;
 						spin_unlock(&ifpub->lock);
-						ipv6_create_tempaddr(ifpub, ifp);
+						ipv6_create_tempaddr(ifpub);
 						in6_ifa_put(ifpub);
 						in6_ifa_put(ifp);
 						goto restart;

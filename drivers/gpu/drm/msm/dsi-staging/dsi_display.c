@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -4575,12 +4575,6 @@ int dsi_display_cont_splash_config(void *dsi_display)
 		return -EINVAL;
 	}
 
-	/* Continuous splash not supported by external bridge */
-	if (dsi_display_has_ext_bridge(display)) {
-		display->is_cont_splash_enabled = false;
-		return 0;
-	}
-
 	mutex_lock(&display->display_lock);
 
 	/* Vote for gdsc required to read register address space */
@@ -4631,6 +4625,14 @@ int dsi_display_cont_splash_config(void *dsi_display)
 	if (display->panel->lge.use_labibb) {
 		/* Vote on panel regulator will be removed during suspend path */
 		rc = dsi_pwr_enable_regulator(&display->panel->power_info, true);
+
+	/* For external bridge, regulators are managed by bridge driver */
+	if (!dsi_display_has_ext_bridge(display)) {
+		/* Vote on panel regulator will be removed
+		 * during suspend path
+		 */
+		rc = dsi_pwr_enable_regulator(&display->panel->power_info,
+				true);
 		if (rc) {
 			pr_err("[%s] failed to enable vregs, rc=%d\n",
 					display->panel->name, rc);
@@ -4649,6 +4651,7 @@ int dsi_display_cont_splash_config(void *dsi_display)
 	}
 #endif
 
+	}
 	dsi_config_host_engine_state_for_cont_splash(display);
 	mutex_unlock(&display->display_lock);
 

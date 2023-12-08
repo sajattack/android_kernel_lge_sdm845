@@ -55,12 +55,6 @@
 #include <linux/seq_file.h>
 #include <trace/events/skb.h>
 #include "udp_impl.h"
-#include <net/patchcodeid.h>
-
-/* 2017-05-19 yunsik.lee@lge.com LGP_DATA_UDP_PREVENT_ICMPv6_WITH_CLAT_IID [START] */
-unsigned int sysctl_clat_iid1 __read_mostly = 0;
-unsigned int sysctl_clat_iid2 __read_mostly = 0;
-/* 2017-05-19 yunsik.lee@lge.com LGP_DATA_UDP_PREVENT_ICMPv6_WITH_CLAT_IID [END] */
 
 static u32 udp6_ehashfn(const struct net *net,
 			const struct in6_addr *laddr,
@@ -618,7 +612,6 @@ int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		}
 	}
 
-	prefetch(&sk->sk_rmem_alloc);
 	if (rcu_access_pointer(sk->sk_filter) &&
 	    udp_lib_checksum_complete(skb))
 		goto csum_error;
@@ -872,13 +865,6 @@ int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 		goto csum_error;
 
 	__UDP6_INC_STATS(net, UDP_MIB_NOPORTS, proto == IPPROTO_UDPLITE);
-    /* 2017-05-19 yunsik.lee@lge.com LGP_DATA_UDP_PREVENT_ICMPv6_WITH_CLAT_IID [START] */
-    patch_code_id("LPCP-2049@y@c@vmlinux@udp.c@1");
-    if ( (sysctl_clat_iid1 == ntohl(daddr->s6_addr32[2]) ) && ( sysctl_clat_iid2 == ntohl(daddr->s6_addr32[3] ) ) ) {
-        kfree_skb(skb);
-        return 0;
-    }
-    /* 2017-05-19 yunsik.lee@lge.com LGP_DATA_UDP_PREVENT_ICMPv6_WITH_CLAT_IID [END] */
 	icmpv6_send(skb, ICMPV6_DEST_UNREACH, ICMPV6_PORT_UNREACH, 0);
 
 	kfree_skb(skb);
@@ -1126,7 +1112,7 @@ int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct ipcm6_cookie ipc6;
 	int addr_len = msg->msg_namelen;
 	int ulen = len;
-	int corkreq = up->corkflag || msg->msg_flags&MSG_MORE;
+	int corkreq = READ_ONCE(up->corkflag) || msg->msg_flags&MSG_MORE;
 	int err;
 	int connected = 0;
 	int is_udplite = IS_UDPLITE(sk);
@@ -1424,6 +1410,9 @@ void udpv6_destroy_sock(struct sock *sk)
 {
 	struct udp_sock *up = udp_sk(sk);
 	lock_sock(sk);
+
+	/* protects from races with udp_abort() */
+	sock_set_flag(sk, SOCK_DEAD);
 	udp_v6_flush_pending_frames(sk);
 	release_sock(sk);
 

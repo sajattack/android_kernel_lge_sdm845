@@ -86,11 +86,6 @@ if INET
 source "net/ipv4/Kconfig"
 source "net/ipv6/Kconfig"
 source "net/netlabel/Kconfig"
-source "net/mptcp/Kconfig"
-# 2015-08-25 jewon.lee@lge.com, LGP_DATA_TCPIP_MPTCP [START]
-config LGP_DATA_TCPIP_MPTCP
-    bool "LG MPTCP feature"
-# 2015-08-25 jewon.lee@lge.com, LGP_DATA_TCPIP_MPTCP [END]
 
 endif # if INET
 
@@ -198,7 +193,7 @@ config BRIDGE_NETFILTER
 	depends on BRIDGE
 	depends on NETFILTER && INET
 	depends on NETFILTER_ADVANCED
-	default y
+	default m
 	---help---
 	  Enabling this option will let arptables resp. iptables see bridged
 	  ARP resp. IP traffic. If you want a bridging firewall, you probably
@@ -299,7 +294,7 @@ config BQL
 config BPF_JIT
 	bool "enable BPF Just In Time compiler"
 	depends on HAVE_CBPF_JIT || HAVE_EBPF_JIT
-	depends on ARM64
+	depends on MODULES
 	depends on !CFI
 	---help---
 	  Berkeley Packet Filter filtering capabilities are normally handled

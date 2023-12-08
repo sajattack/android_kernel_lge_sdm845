@@ -437,10 +437,17 @@ int wlan_cfg80211_sched_scan_start(struct wlan_objmgr_vdev *vdev,
 
 	enable_dfs_pno_chnl_scan = ucfg_scan_is_dfs_chnl_scan_enabled(psoc);
 	if (request->n_channels) {
-		char chl[MAX_CHANNEL * 5 + 1];
+		uint32_t buff_len;
+		char *chl;
 		int len = 0;
 		bool ap_or_go_present = wlan_cfg80211_is_ap_go_present(psoc);
 
+		buff_len = (request->n_channels * 5) + 1;
+		chl = qdf_mem_malloc(buff_len);
+		if (!chl) {
+			ret = -ENOMEM;
+			goto error;
+		}
 		for (i = 0; i < request->n_channels; i++) {
 			channel = request->channels[i]->hw_value;
 			if (wlan_reg_is_dsrc_chan(pdev, channel))
@@ -468,10 +475,12 @@ int wlan_cfg80211_sched_scan_start(struct wlan_objmgr_vdev *vdev,
 				if (!ok)
 					continue;
 			}
-			len += snprintf(chl + len, 5, "%d ", channel);
+			len += qdf_scnprintf(chl + len, buff_len - len, " %d", channel);
 			valid_ch[num_chan++] = wlan_chan_to_freq(channel);
 		}
 		cfg80211_debug("Channel-List[%d]:%s", num_chan, chl);
+		qdf_mem_free(chl);
+		chl = NULL;
 		/* If all channels are DFS and dropped,
 		 * then ignore the PNO request
 		 */

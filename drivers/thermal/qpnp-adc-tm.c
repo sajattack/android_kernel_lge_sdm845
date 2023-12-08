@@ -2982,7 +2982,7 @@ int32_t qpnp_adc_tm_disable_chan_meas(struct qpnp_adc_tm_chip *chip,
 #endif
 		if (rc < 0) {
 			pr_err("high thr disable err:%d\n", btm_chan_num);
-			return rc;
+			goto fail;
 		}
 
 
@@ -2995,7 +2995,7 @@ int32_t qpnp_adc_tm_disable_chan_meas(struct qpnp_adc_tm_chip *chip,
 #endif
 		if (rc < 0) {
 			pr_err("low thr disable err:%d\n", btm_chan_num);
-			return rc;
+			goto fail;
 		}
 #ifdef CONFIG_LGE_USB_MOISTURE_DETECTION
 		rc = qpnp_adc_tm_reg_update(chip, QPNP_BTM_Mn_EN(dt_index),
@@ -3006,7 +3006,7 @@ int32_t qpnp_adc_tm_disable_chan_meas(struct qpnp_adc_tm_chip *chip,
 #endif
 		if (rc < 0) {
 			pr_err("multi measurement disable failed\n");
-			return rc;
+			goto fail;
 		}
 	}
 

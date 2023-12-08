@@ -68,13 +68,13 @@ SYM_FUNC_START_WEAK_PI(memcpy)
 	cmp	count, 32
 	b.hi	L(copy32_128)
 
-	/* Small copies: 0..32 bytes.  */
-	cmp	count, 16
-	b.lo	L(copy16)
-	ldp	A_l, A_h, [src]
-	ldp	D_l, D_h, [srcend, -16]
-	stp	A_l, A_h, [dstin]
-	stp	D_l, D_h, [dstend, -16]
+	.macro stp1 ptr, regB, regC, val
+	stp \ptr, \regB, [\regC], \val
+	.endm
+
+ENTRY(__memcpy)
+WEAK(memcpy)
+#include "copy_template.S"
 	ret
 
 	/* Copy 8-15 bytes.  */

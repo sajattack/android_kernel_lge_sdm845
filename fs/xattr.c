@@ -588,7 +588,6 @@ getxattr(struct dentry *d, const char __user *name, void __user *value,
 	ssize_t error;
 	void *kvalue = NULL;
 	char kname[XATTR_NAME_MAX + 1];
-	char kvalue_onstack[255];
 
 	error = strncpy_from_user(kname, name, sizeof(kname));
 	if (error == 0 || error == sizeof(kname))
@@ -597,17 +596,13 @@ getxattr(struct dentry *d, const char __user *name, void __user *value,
 		return error;
 
 	if (size) {
-		if (size <= ARRAY_SIZE(kvalue_onstack)) {
-			kvalue = kvalue_onstack;
-		} else {
-			if (size > XATTR_SIZE_MAX)
-				size = XATTR_SIZE_MAX;
-			kvalue = kzalloc(size, GFP_KERNEL | __GFP_NOWARN);
-			if (!kvalue) {
-				kvalue = vzalloc(size);
-				if (!kvalue)
-					return -ENOMEM;
-			}
+		if (size > XATTR_SIZE_MAX)
+			size = XATTR_SIZE_MAX;
+		kvalue = kzalloc(size, GFP_KERNEL | __GFP_NOWARN);
+		if (!kvalue) {
+			kvalue = vzalloc(size);
+			if (!kvalue)
+				return -ENOMEM;
 		}
 	}
 
@@ -624,8 +619,8 @@ getxattr(struct dentry *d, const char __user *name, void __user *value,
 		error = -E2BIG;
 	}
 
-	if (kvalue != kvalue_onstack)
-		kfree(kvalue);
+	kvfree(kvalue);
+
 	return error;
 }
 
@@ -1022,7 +1017,7 @@ static int xattr_list_one(char **buffer, ssize_t *remaining_size,
 ssize_t simple_xattr_list(struct inode *inode, struct simple_xattrs *xattrs,
 			  char *buffer, size_t size)
 {
-	bool trusted = capable(CAP_SYS_ADMIN);
+	bool trusted = ns_capable_noaudit(&init_user_ns, CAP_SYS_ADMIN);
 	struct simple_xattr *xattr;
 	ssize_t remaining_size = size;
 	int err = 0;

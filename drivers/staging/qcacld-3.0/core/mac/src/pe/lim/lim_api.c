@@ -1292,12 +1292,15 @@ static bool pe_filter_bcn_probe_frame(tpAniSirGlobal mac_ctx,
 
 		ssid_ie = wlan_get_ie_ptr_from_eid(SIR_MAC_SSID_EID,
 				body + SIR_MAC_B_PR_SSID_OFFSET,
-				frame_len);
+				frame_len - SIR_MAC_B_PR_SSID_OFFSET);
 
 		if (!ssid_ie)
 			return false;
 
 		bcn_ssid.length = ssid_ie[1];
+		if (bcn_ssid.length > WLAN_SSID_MAX_LEN)
+			return false;
+
 		qdf_mem_copy(&bcn_ssid.ssId,
 			     &ssid_ie[2],
 			     bcn_ssid.length);
@@ -2850,7 +2853,6 @@ void lim_update_lost_link_info(tpAniSirGlobal mac, tpPESession session,
 	lim_sys_process_mmh_msg_api(mac, &mmh_msg, ePROT);
 }
 
-#ifdef TRACE_RECORD
 QDF_STATUS pe_acquire_global_lock(tAniSirLim *psPe)
 {
 	QDF_STATUS status = QDF_STATUS_E_INVAL;
@@ -2863,7 +2865,6 @@ QDF_STATUS pe_acquire_global_lock(tAniSirLim *psPe)
 	}
 	return status;
 }
-#endif
 
 QDF_STATUS pe_release_global_lock(tAniSirLim *psPe)
 {

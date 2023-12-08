@@ -5096,7 +5096,9 @@ static int __wlan_hdd_cfg80211_disable_dfs_chan_scan(struct wiphy *wiphy,
 						     const void *data,
 						     int data_len)
 {
+#ifdef WLAN_DEBUG
 	struct net_device *dev = wdev->netdev;
+#endif
 	struct hdd_context *hdd_ctx  = wiphy_priv(wiphy);
 	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_SET_NO_DFS_FLAG_MAX + 1];
 	int ret_val;
@@ -18577,6 +18579,11 @@ static int __wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 		setKey.keyDirection = eSIR_TX_RX;
 		qdf_mem_copy(setKey.peerMac.bytes, mac_addr, QDF_MAC_ADDR_SIZE);
 	}
+
+	cdp_peer_flush_frags(cds_get_context(QDF_MODULE_ID_SOC),
+			     cds_get_context(QDF_MODULE_ID_TXRX),
+			     adapter->session_id, setKey.peerMac.bytes);
+
 	if ((QDF_IBSS_MODE == adapter->device_mode) && !pairwise) {
 		/* if a key is already installed, block all subsequent ones */
 		if (adapter->session.station.ibss_enc_key_installed) {
@@ -21649,9 +21656,9 @@ static int wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
  * Return: string conversion of reason code, if match found;
  *         "Unknown" otherwise.
  */
+#ifdef WLAN_DEBUG
 static const char *hdd_ieee80211_reason_code_to_str(uint16_t reason)
 {
-#ifdef WLAN_DEBUG
 	switch (reason) {
 	CASE_RETURN_STRING(WLAN_REASON_UNSPECIFIED);
 	CASE_RETURN_STRING(WLAN_REASON_PREV_AUTH_NOT_VALID);
@@ -21703,9 +21710,8 @@ static const char *hdd_ieee80211_reason_code_to_str(uint16_t reason)
 	default:
 		return "Unknown";
 	}
-#endif
-	return "";
 }
+#endif
 
 /**
  * hdd_qca_reason_to_str() - return string conversion of qca reason code
@@ -21716,10 +21722,10 @@ static const char *hdd_ieee80211_reason_code_to_str(uint16_t reason)
  * Return: string conversion of reason code, if match found;
  *         "Unknown" otherwise.
  */
+#ifdef WLAN_DEBUG
 static const char *
 hdd_qca_reason_to_str(enum qca_disconnect_reason_codes reason)
 {
-#ifdef WLAN_DEBUG
 	switch (reason) {
 	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_INTERNAL_ROAM_FAILURE);
 	CASE_RETURN_STRING(QCA_DISCONNECT_REASON_EXTERNAL_ROAM_FAILURE);
@@ -21742,9 +21748,8 @@ hdd_qca_reason_to_str(enum qca_disconnect_reason_codes reason)
 	default:
 		return "Unknown";
 	}
-#endif
-	return "";
 }
+#endif
 
 /**
  * wlan_hdd_sir_mac_to_qca_reason() - Convert to qca internal disconnect reason
@@ -21945,17 +21950,18 @@ int wlan_hdd_disconnect(struct hdd_adapter *adapter, u16 reason,
  */
 static void hdd_print_netdev_txq_status(struct net_device *dev)
 {
-#ifdef WLAN_DEBUG
 	unsigned int i;
 
 	if (!dev)
 		return;
 
 	for (i = 0; i < dev->num_tx_queues; i++) {
+#ifdef WLAN_DEBUG
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
+#endif
+
 		hdd_debug("netdev tx queue[%u] state: 0x%lx", i, txq->state);
 	}
-#endif
 }
 
 /**

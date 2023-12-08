@@ -66,6 +66,7 @@ static void ext4_mark_recovery_complete(struct super_block *sb,
 static void ext4_clear_journal_err(struct super_block *sb,
 				   struct ext4_super_block *es);
 static int ext4_sync_fs(struct super_block *sb, int wait);
+static void ext4_umount_end(struct super_block *sb, int flags);
 static int ext4_remount(struct super_block *sb, int *flags, char *data);
 static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf);
 static int ext4_unfreeze(struct super_block *sb);
@@ -419,12 +420,6 @@ static void ext4_handle_error(struct super_block *sb)
 		 */
 		smp_wmb();
 		sb->s_flags |= MS_RDONLY;
-#ifdef CONFIG_MACH_LGE
-		if(!strcmp(EXT4_SB(sb)->s_es->s_volume_name,"data") &&
-			system_state != SYSTEM_RESTART &&
-			system_state != SYSTEM_POWER_OFF)
-			printk(KERN_CRIT "EXT4-fs data remounted as RO in ext4_handle_error\n");
-#endif
 	}
 	if (test_opt(sb, ERRORS_PANIC)) {
 		if (EXT4_SB(sb)->s_journal &&
@@ -627,16 +622,6 @@ void __ext4_abort(struct super_block *sb, const char *function,
 		if (EXT4_SB(sb)->s_journal)
 			jbd2_journal_abort(EXT4_SB(sb)->s_journal, -EIO);
 		save_error_info(sb, function, line);
-#ifdef CONFIG_MACH_LGE
-		/* LGE_CHANGE, 2016-11-24, DIVAP-BSP-FS@lge.com
-		 * put panic when ext4 partition(data partition) is remounted as Read Only
-		 */
-		if(!strcmp(EXT4_SB(sb)->s_es->s_volume_name,"data") &&
-			system_state != SYSTEM_RESTART &&
-			system_state != SYSTEM_POWER_OFF &&
-			!test_opt(sb, ERRORS_RO))
-			panic("EXT4-fs panic from previous error. remounted as RO \n");
-#endif
 	}
 	if (test_opt(sb, ERRORS_PANIC)) {
 		if (EXT4_SB(sb)->s_journal &&
@@ -1279,6 +1264,7 @@ static const struct super_operations ext4_sops = {
 	.freeze_fs	= ext4_freeze,
 	.unfreeze_fs	= ext4_unfreeze,
 	.statfs		= ext4_statfs,
+	.umount_end	= ext4_umount_end,
 	.remount_fs	= ext4_remount,
 	.show_options	= ext4_show_options,
 #ifdef CONFIG_QUOTA
@@ -1594,8 +1580,8 @@ static const struct mount_opts {
 	{Opt_noquota, (EXT4_MOUNT_QUOTA | EXT4_MOUNT_USRQUOTA |
 		       EXT4_MOUNT_GRPQUOTA | EXT4_MOUNT_PRJQUOTA),
 							MOPT_CLEAR | MOPT_Q},
-	{Opt_usrjquota, 0, MOPT_Q},
-	{Opt_grpjquota, 0, MOPT_Q},
+	{Opt_usrjquota, 0, MOPT_Q | MOPT_STRING},
+	{Opt_grpjquota, 0, MOPT_Q | MOPT_STRING},
 	{Opt_offusrjquota, 0, MOPT_Q},
 	{Opt_offgrpjquota, 0, MOPT_Q},
 	{Opt_jqfmt_vfsold, QFMT_VFS_OLD, MOPT_QFMT},
@@ -2144,8 +2130,8 @@ int ext4_alloc_flex_bg_array(struct super_block *sb, ext4_group_t ngroup)
 	if (size <= sbi->s_flex_groups_allocated)
 		return 0;
 
-	new_groups = kvzalloc(roundup_pow_of_two(size *
-			      sizeof(*sbi->s_flex_groups)), GFP_KERNEL);
+	new_groups = ext4_kvzalloc(roundup_pow_of_two(size *
+				   sizeof(*sbi->s_flex_groups)), GFP_KERNEL);
 	if (!new_groups) {
 		ext4_msg(sb, KERN_ERR,
 			 "not enough memory for %d flex group pointers", size);
@@ -2934,6 +2920,7 @@ static int ext4_lazyinit_thread(void *arg)
 	unsigned long next_wakeup, cur;
 
 	BUG_ON(NULL == eli);
+	set_freezable();
 
 cont_thread:
 	while (true) {
@@ -3264,9 +3251,11 @@ static int count_overhead(struct super_block *sb, ext4_group_t grp,
 	ext4_fsblk_t		first_block, last_block, b;
 	ext4_group_t		i, ngroups = ext4_get_groups_count(sb);
 	int			s, j, count = 0;
+	int			has_super = ext4_bg_has_super(sb, grp);
 
 	if (!ext4_has_feature_bigalloc(sb))
-		return (ext4_bg_has_super(sb, grp) + ext4_bg_num_gdb(sb, grp) +
+		return (has_super + ext4_bg_num_gdb(sb, grp) +
+			(has_super ? le16_to_cpu(sbi->s_es->s_reserved_gdt_blocks) : 0) +
 			sbi->s_itb_per_group + 2);
 
 	first_block = le32_to_cpu(sbi->s_es->s_first_data_block) +
@@ -3998,7 +3987,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 		}
 	}
 	rcu_assign_pointer(sbi->s_group_desc,
-			   kvmalloc(db_count *
+			   ext4_kvmalloc(db_count *
 					  sizeof(struct buffer_head *),
 					  GFP_KERNEL));
 	if (sbi->s_group_desc == NULL) {
@@ -4187,9 +4176,18 @@ no_journal:
 	 * Get the # of file system overhead blocks from the
 	 * superblock if present.
 	 */
-	if (es->s_overhead_clusters)
-		sbi->s_overhead = le32_to_cpu(es->s_overhead_clusters);
-	else {
+	sbi->s_overhead = le32_to_cpu(es->s_overhead_clusters);
+	/* ignore the precalculated value if it is ridiculous */
+	if (sbi->s_overhead > ext4_blocks_count(es))
+		sbi->s_overhead = 0;
+	/*
+	 * If the bigalloc feature is not enabled recalculating the
+	 * overhead doesn't take long, so we might as well just redo
+	 * it to make sure we are using the correct value.
+	 */
+	if (!ext4_has_feature_bigalloc(sb))
+		sbi->s_overhead = 0;
+	if (sbi->s_overhead == 0) {
 		err = ext4_calculate_overhead(sb);
 		if (err)
 			goto failed_mount_wq;
@@ -4351,17 +4349,12 @@ no_journal:
 cantfind_ext4:
 	if (!silent)
 		ext4_msg(sb, KERN_ERR, "VFS: Can't find ext4 filesystem");
-#ifdef CONFIG_MACH_LGE
-	/* LGE_CHANGE, BSP-FS@lge.com
-	   add return code if ext4 superblock is damaged
-	*/
-	ret=-ESUPER;
-#endif
 	goto failed_mount;
 
 #ifdef CONFIG_QUOTA
 failed_mount8:
 	ext4_unregister_sysfs(sb);
+	kobject_put(&sbi->s_kobj);
 #endif
 failed_mount7:
 	ext4_unregister_li_request(sb);
@@ -4697,35 +4690,16 @@ static int ext4_load_journal(struct super_block *sb,
 	return 0;
 }
 
-#ifdef CONFIG_MACH_LGE
-/* These avb-ed or verify-ed block list is definitley model based configuration,
- * so need to get confirm from security part.
- */
-#define VERITY_BLOCK(name) \
-	(\
-	!strncmp(name, "/", 1) 		||	\
-	!strncmp(name, "system", 6) ||	\
-	!strncmp(name, "vendor", 6)		\
-	)
-#endif
-
 static int ext4_commit_super(struct super_block *sb, int sync)
 {
 	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
 	struct buffer_head *sbh = EXT4_SB(sb)->s_sbh;
 	int error = 0;
 
-#ifdef CONFIG_MACH_LGE
-	if (es && (sb->s_flags & MS_RDONLY)) {
-		if (VERITY_BLOCK(es->s_volume_name))
-		 printk("EXT4-fs : skipping %s for read only verity block(%s)\n",
-				__func__, es->s_volume_name);
-		 return error;
-	}
-#endif
-
-	if (!sbh || block_device_ejected(sb))
-		return error;
+	if (!sbh)
+		return -EINVAL;
+	if (block_device_ejected(sb))
+		return -ENODEV;
 
 	/*
 	 * If the file system is mounted read-only, don't update the
@@ -4992,6 +4966,25 @@ struct ext4_mount_options {
 #endif
 };
 
+static void ext4_umount_end(struct super_block *sb, int flags)
+{
+	/*
+	 * this is called at the end of umount(2). If there is an unclosed
+	 * namespace, ext4 won't do put_super() which triggers fsck in the
+	 * next boot.
+	 */
+	if ((flags & MNT_FORCE) || atomic_read(&sb->s_active) > 1) {
+		ext4_msg(sb, KERN_ERR,
+			"errors=remount-ro for active namespaces on umount %x",
+						flags);
+		clear_opt(sb, ERRORS_PANIC);
+		set_opt(sb, ERRORS_RO);
+		/* to write the latest s_kbytes_written */
+		if (!(sb->s_flags & MS_RDONLY))
+			ext4_commit_super(sb, 1);
+	}
+}
+
 static int ext4_remount(struct super_block *sb, int *flags, char *data)
 {
 	struct ext4_super_block *es;
@@ -5194,7 +5187,10 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 		ext4_register_li_request(sb, first_not_zeroed);
 	}
 
-	ext4_setup_system_zone(sb);
+	err = ext4_setup_system_zone(sb);
+	if (err)
+		goto restore_opts;
+
 	if (sbi->s_journal == NULL && !(old_sb_flags & MS_RDONLY))
 		ext4_commit_super(sb, 1);
 
@@ -5302,12 +5298,6 @@ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bfree = EXT4_C2B(sbi, max_t(s64, bfree, 0));
 	buf->f_bavail = buf->f_bfree -
 			(ext4_r_blocks_count(es) + resv_blocks);
-#ifdef CONFIG_MACH_SDM845_JUDYLN_LAO_LDU
-	if(!strcmp(es->s_last_mounted,"/data"))
-	{
-		buf->f_blocks = 10927276;
-	}
-#endif
 	if (buf->f_bfree < (ext4_r_blocks_count(es) + resv_blocks))
 		buf->f_bavail = 0;
 	buf->f_files = le32_to_cpu(es->s_inodes_count);
@@ -5417,7 +5407,7 @@ static int ext4_write_info(struct super_block *sb, int type)
 	handle_t *handle;
 
 	/* Data block + inode block */
-	handle = ext4_journal_start(d_inode(sb->s_root), EXT4_HT_QUOTA, 2);
+	handle = ext4_journal_start_sb(sb, EXT4_HT_QUOTA, 2);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 	ret = dquot_commit_info(sb, type);
@@ -5465,6 +5455,11 @@ static int ext4_quota_on(struct super_block *sb, int type, int format_id,
 	/* Quotafile not on the same filesystem? */
 	if (path->dentry->d_sb != sb)
 		return -EXDEV;
+
+	/* Quota already enabled for this file? */
+	if (IS_NOQUOTA(d_inode(path->dentry)))
+		return -EBUSY;
+
 	/* Journaling quota? */
 	if (EXT4_SB(sb)->s_qf_names[type]) {
 		/* Quotafile not in fs root? */
@@ -5644,7 +5639,7 @@ static ssize_t ext4_quota_write(struct super_block *sb, int type,
 	struct buffer_head *bh;
 	handle_t *handle = journal_current_handle();
 
-	if (EXT4_SB(sb)->s_journal && !handle) {
+	if (!handle) {
 		ext4_msg(sb, KERN_WARNING, "Quota write (off=%llu, len=%llu)"
 			" cancelled because transaction is not started",
 			(unsigned long long)off, (unsigned long long)len);

@@ -1305,6 +1305,7 @@ static enum compact_result __compact_finished(struct zone *zone, struct compact_
 			    const int migratetype)
 {
 	unsigned int order;
+	unsigned long watermark;
 
 	if (cc->contended || fatal_signal_pending(current))
 		return COMPACT_CONTENDED;
@@ -1332,6 +1333,13 @@ static enum compact_result __compact_finished(struct zone *zone, struct compact_
 	if (is_via_compact_memory(cc->order))
 		return COMPACT_CONTINUE;
 
+	/* Compaction run is not finished if the watermark is not met */
+	watermark = zone->watermark[cc->alloc_flags & ALLOC_WMARK_MASK];
+
+	if (!zone_watermark_ok(zone, cc->order, watermark, cc->classzone_idx,
+							cc->alloc_flags))
+		return COMPACT_CONTINUE;
+
 	/* Direct compactor: Is a suitable page free? */
 	for (order = cc->order; order < MAX_ORDER; order++) {
 		struct free_area *area = &zone->free_area[order];
@@ -1352,7 +1360,7 @@ static enum compact_result __compact_finished(struct zone *zone, struct compact_
 		 * other migratetype buddy lists.
 		 */
 		if (find_suitable_fallback(area, order, migratetype,
-						true, &can_steal) != -1)
+						true, cc->order, &can_steal) != -1)
 			return COMPACT_SUCCESS;
 	}
 

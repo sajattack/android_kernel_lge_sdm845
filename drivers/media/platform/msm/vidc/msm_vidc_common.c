@@ -1756,6 +1756,7 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			dprintk(VIDC_ERR,
 				"Failed : No buffer requirements : %x\n",
 					HAL_BUFFER_OUTPUT);
+			mutex_unlock(&inst->lock);
 			return;
 		}
 
@@ -1767,6 +1768,7 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			dprintk(VIDC_ERR,
 				"Failed : No buffer requirements : %x\n",
 					HAL_BUFFER_OUTPUT2);
+			mutex_unlock(&inst->lock);
 			return;
 		}
 
@@ -1779,6 +1781,7 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			dprintk(VIDC_ERR,
 				"Failed : No buffer requirements : %x\n",
 					HAL_BUFFER_OUTPUT);
+			mutex_unlock(&inst->lock);
 			return;
 		}
 		bufreq->buffer_count_min = event_notify->capture_buf_count;
