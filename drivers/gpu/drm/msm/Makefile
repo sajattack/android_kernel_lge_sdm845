@@ -165,8 +165,6 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	sde/sde_hw_dsc.o \
 	sde/sde_hw_ds.o
 
-obj-$(CONFIG_LGE_DISPLAY_COMMON) += lge/
-
 msm_drm-$(CONFIG_DRM_SDE_WB) += sde/sde_wb.o \
 	sde/sde_encoder_phys_wb.o
 
@@ -189,4 +187,7 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_fence.o \
 	msm_debugfs.o
 
+obj-$(CONFIG_LGE_DISPLAY_COMMON) += lge/
+
 obj-$(CONFIG_DRM_MSM)	+= msm_drm.o
+CFLAGS_sde_crtc.o += -Wframe-larger-than=8192

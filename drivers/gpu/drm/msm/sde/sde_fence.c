@@ -18,6 +18,8 @@
 
 #define TIMELINE_VAL_LENGTH		128
 
+static struct kmem_cache *kmem_fence_pool;
+
 void *sde_sync_get(uint64_t fd)
 {
 	/* force signed compare, fdget accepts an int argument */
@@ -140,7 +142,7 @@ static void sde_fence_release(struct fence *fence)
 
 	if (fence) {
 		f = to_sde_fence(fence);
-		kfree(f);
+		kmem_cache_free(kmem_fence_pool, f);
 	}
 }
 
@@ -193,7 +195,7 @@ static int _sde_fence_create_fd(void *fence_ctx, uint32_t val)
 		goto exit;
 	}
 
-	sde_fence = kzalloc(sizeof(*sde_fence), GFP_KERNEL);
+	sde_fence = kmem_cache_zalloc(kmem_fence_pool, GFP_KERNEL);
 	if (!sde_fence)
 		return -ENOMEM;
 
@@ -243,6 +245,8 @@ int sde_fence_init(struct sde_fence_context *ctx,
 	}
 	memset(ctx, 0, sizeof(*ctx));
 
+	kmem_fence_pool = KMEM_CACHE(sde_fence, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
+
 	strlcpy(ctx->name, name, ARRAY_SIZE(ctx->name));
 	ctx->drm_id = drm_id;
 	kref_init(&ctx->kref);
@@ -263,6 +267,8 @@ void sde_fence_deinit(struct sde_fence_context *ctx)
 	}
 
 	kref_put(&ctx->kref, sde_fence_destroy);
+
+	kmem_cache_destroy(kmem_fence_pool);
 }
 
 void sde_fence_prepare(struct sde_fence_context *ctx)
@@ -274,6 +280,7 @@ void sde_fence_prepare(struct sde_fence_context *ctx)
 	} else {
 		spin_lock_irqsave(&ctx->lock, flags);
 		++ctx->commit_count;
+		ctx->fence_timeline_update = true;
 		spin_unlock_irqrestore(&ctx->lock, flags);
 	}
 }
@@ -341,8 +348,13 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 	 */
 	spin_lock_irqsave(&ctx->lock, flags);
 	trigger_value = ctx->commit_count + offset;
-
+	if (!ctx->fence_timeline_update) {
+		*val = ctx->fd;
+		rc = 0;
+		goto end;
+	}
 	spin_unlock_irqrestore(&ctx->lock, flags);
+
 
 	fd = _sde_fence_create_fd(ctx, trigger_value);
 	*val = fd;
@@ -357,6 +369,12 @@ int sde_fence_create(struct sde_fence_context *ctx, uint64_t *val,
 	} else {
 		rc = fd;
 	}
+
+	spin_lock_irqsave(&ctx->lock, flags);
+	ctx->fd = fd;
+	ctx->fence_timeline_update = false;
+end:
+	spin_unlock_irqrestore(&ctx->lock, flags);
 
 	return rc;
 }

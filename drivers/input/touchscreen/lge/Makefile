@@ -13,13 +13,6 @@ endif
 # Touch Core Driver Common Header Code..!!
 ccflags-y += -I$(srctree)/drivers/input/touchscreen/lge/
 
-# FIXME relative path and kinda bogus
-ccflags-y += -Iinclude/drm -Idrivers/gpu/drm/msm/ -Idrivers/gpu/drm/msm/dsi-staging/
-ccflags-y += -Idrivers/gpu/drm/msm/sde
-ccflags-y += -Idrivers/gpu/drm/msm/dp
-obj-$(CONFIG_LGE_TOUCH_CORE) 		+= ../../../../drivers/gpu/drm/msm/lge/notifier/lge_panel_notifier.o
-# ENDFIXME
-
 obj-$(CONFIG_LGE_TOUCH_CORE_BASE)	+= touch_core.o
 obj-$(CONFIG_LGE_TOUCH_CORE_BASE)	+= touch_core_sysfs.o
 obj-$(CONFIG_LGE_TOUCH_CORE_BASE)	+= touch_common.o

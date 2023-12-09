@@ -39,6 +39,10 @@
 #include "sde_trace.h"
 #include "sde_core_irq.h"
 
+#ifdef CONFIG_LGE_PM_PRM
+#include "vfps/lge_vfps.h"
+#endif
+
 #define SDE_DEBUG_ENC(e, fmt, ...) SDE_DEBUG("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
@@ -1708,8 +1712,10 @@ static void _sde_encoder_update_vsync_source(struct sde_encoder_virt *sde_enc,
 
 		vsync_cfg.pp_count = sde_enc->num_phys_encs;
 		vsync_cfg.frame_rate = mode_info.frame_rate;
-		vsync_cfg.vsync_source =
-			sde_enc->cur_master->hw_pp->caps->te_source;
+
+		if (sde_enc->cur_master)
+			vsync_cfg.vsync_source =
+				sde_enc->cur_master->hw_pp->caps->te_source;
 		if (is_dummy)
 			vsync_cfg.vsync_source = SDE_VSYNC_SOURCE_WD_TIMER_1;
 		else if (disp_info->is_te_using_watchdog_timer)
@@ -2202,6 +2208,13 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 
 	switch (sw_event) {
 	case SDE_ENC_RC_EVENT_KICKOFF:
+	{
+		struct msm_drm_private *priv;
+		struct sde_kms *sde_kms;
+
+		priv = drm_enc->dev->dev_private;
+		sde_kms = to_sde_kms(priv->kms);
+
 		/* cancel delayed off work, if any */
 		if (kthread_cancel_delayed_work_sync(
 				&sde_enc->delayed_off_work))
@@ -2232,6 +2245,7 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 
 		if (is_vid_mode && sde_enc->rc_state == SDE_ENC_RC_STATE_IDLE) {
 			_sde_encoder_irq_control(drm_enc, true);
+			sde_kms_update_pm_qos_irq_request(sde_kms, true, false);
 		} else {
 			/* enable all the clks and resources */
 			ret = _sde_encoder_resource_control_helper(drm_enc,
@@ -2256,7 +2270,7 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 
 		mutex_unlock(&sde_enc->rc_lock);
 		break;
-
+	}
 	case SDE_ENC_RC_EVENT_FRAME_DONE:
 		if (!sde_enc->crtc) {
 			SDE_ERROR("invalid crtc, sw_event:%u\n", sw_event);
@@ -2487,6 +2501,13 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 		break;
 
 	case SDE_ENC_RC_EVENT_ENTER_IDLE:
+	{
+		struct msm_drm_private *priv;
+		struct sde_kms *sde_kms;
+
+		priv = drm_enc->dev->dev_private;
+		sde_kms = to_sde_kms(priv->kms);
+
 		mutex_lock(&sde_enc->rc_lock);
 
 		if (sde_enc->rc_state != SDE_ENC_RC_STATE_ON) {
@@ -2514,6 +2535,7 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 
 		if (is_vid_mode) {
 			_sde_encoder_irq_control(drm_enc, false);
+			sde_kms_update_pm_qos_irq_request(sde_kms, false, false);
 		} else {
 			/* disable all the clks and resources */
 			_sde_encoder_resource_control_rsc_update(drm_enc,
@@ -2527,6 +2549,7 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 
 		mutex_unlock(&sde_enc->rc_lock);
 		break;
+	}
 	case SDE_ENC_RC_EVENT_EARLY_WAKEUP:
 		if (!sde_enc->crtc ||
 			sde_enc->crtc->index >= ARRAY_SIZE(priv->disp_thread)) {
@@ -3183,16 +3206,26 @@ static void sde_encoder_vblank_callback(struct drm_encoder *drm_enc,
 	if (!drm_enc || !phy_enc)
 		return;
 
-	SDE_ATRACE_BEGIN("encoder_vblank_callback");
 	sde_enc = to_sde_encoder_virt(drm_enc);
 
 	spin_lock_irqsave(&sde_enc->enc_spinlock, lock_flags);
 	if (sde_enc->crtc_vblank_cb)
+#ifdef CONFIG_LGE_PM_PRM
+	{
+		if (sde_enc->disp_info.is_primary) {
+			if (!lge_vfps_check_internal())
+				sde_enc->crtc_vblank_cb(sde_enc->crtc_vblank_cb_data);
+		} else {
+			sde_enc->crtc_vblank_cb(sde_enc->crtc_vblank_cb_data);
+		}
+	}
+#else
 		sde_enc->crtc_vblank_cb(sde_enc->crtc_vblank_cb_data);
+#endif
+
 	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
 
 	atomic_inc(&phy_enc->vsync_cnt);
-	SDE_ATRACE_END("encoder_vblank_callback");
 }
 
 static void sde_encoder_underrun_callback(struct drm_encoder *drm_enc,
@@ -3201,7 +3234,6 @@ static void sde_encoder_underrun_callback(struct drm_encoder *drm_enc,
 	if (!phy_enc)
 		return;
 
-	SDE_ATRACE_BEGIN("encoder_underrun_callback");
 	atomic_inc(&phy_enc->underrun_cnt);
 	SDE_EVT32(DRMID(drm_enc), atomic_read(&phy_enc->underrun_cnt));
 
@@ -3211,7 +3243,6 @@ static void sde_encoder_underrun_callback(struct drm_encoder *drm_enc,
 	SDE_DBG_CTRL("stop_ftrace");
 	SDE_DBG_CTRL("panic_underrun");
 
-	SDE_ATRACE_END("encoder_underrun_callback");
 }
 
 void sde_encoder_register_vblank_callback(struct drm_encoder *drm_enc,
@@ -4164,7 +4195,6 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 		ln_cnt1 = -EINVAL;
 
 	/* prepare for next kickoff, may include waiting on previous kickoff */
-	SDE_ATRACE_BEGIN("enc_prepare_for_kickoff");
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
 		phys = sde_enc->phys_encs[i];
 		params->is_primary = sde_enc->disp_info.is_primary;
@@ -4180,7 +4210,6 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 			_sde_encoder_setup_dither(phys);
 		}
 	}
-	SDE_ATRACE_END("enc_prepare_for_kickoff");
 
 	rc = sde_encoder_resource_control(drm_enc, SDE_ENC_RC_EVENT_KICKOFF);
 	if (rc) {
@@ -4290,7 +4319,6 @@ static int _sde_encoder_reset_ctl_hw(struct drm_encoder *drm_enc)
 
 	sde_enc = to_sde_encoder_virt(drm_enc);
 
-	SDE_ATRACE_BEGIN("encoder_release_lm");
 	SDE_DEBUG_ENC(sde_enc, "\n");
 
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
@@ -4305,7 +4333,6 @@ static int _sde_encoder_reset_ctl_hw(struct drm_encoder *drm_enc)
 			SDE_EVT32(DRMID(drm_enc), rc, SDE_EVTLOG_ERROR);
 	}
 
-	SDE_ATRACE_END("encoder_release_lm");
 	return rc;
 }
 
@@ -4320,7 +4347,6 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 		SDE_ERROR("invalid encoder\n");
 		return;
 	}
-	SDE_ATRACE_BEGIN("encoder_kickoff");
 	sde_enc = to_sde_encoder_virt(drm_enc);
 
 	SDE_DEBUG_ENC(sde_enc, "\n");
@@ -4347,7 +4373,6 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 				nsecs_to_jiffies(ktime_to_ns(wakeup_time)));
 	}
 
-	SDE_ATRACE_END("encoder_kickoff");
 }
 
 int sde_encoder_helper_reset_mixers(struct sde_encoder_phys *phys_enc,
@@ -4670,6 +4695,14 @@ static void _sde_encoder_destroy_debugfs(struct drm_encoder *drm_enc)
 
 static int sde_encoder_late_register(struct drm_encoder *encoder)
 {
+#ifdef CONFIG_LGE_PM_PRM
+	if (encoder) {
+		struct sde_encoder_virt *sde_enc = to_sde_encoder_virt(encoder);
+		if (sde_enc->disp_info.is_primary) {
+			lge_vfps_set_encoder(encoder);
+		}
+	}
+#endif
 	return _sde_encoder_init_debugfs(encoder);
 }
 
@@ -5020,9 +5053,7 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
 		};
 
 		if (phys && fn_wait) {
-			SDE_ATRACE_BEGIN("wait_for_completion_event");
 			ret = fn_wait(phys);
-			SDE_ATRACE_END("wait_for_completion_event");
 			if (ret)
 				return ret;
 		}

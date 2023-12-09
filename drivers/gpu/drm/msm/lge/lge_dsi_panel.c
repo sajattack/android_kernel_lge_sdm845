@@ -1296,6 +1296,13 @@ void lge_mdss_report_panel_dead(void)
 }
 EXPORT_SYMBOL(lge_mdss_report_panel_dead);
 
+static ssize_t lge_mdss_force_report_panel_dead(struct device *dev,
+								struct device_attribute *attr,
+								char *buf)
+{
+	lge_mdss_report_panel_dead();
+	return 1;
+}
 static DEVICE_ATTR(report_panel_dead, S_IRUGO,
 										lge_mdss_force_report_panel_dead, NULL);
 

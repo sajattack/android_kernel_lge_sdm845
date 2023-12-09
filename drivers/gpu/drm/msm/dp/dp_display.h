@@ -19,6 +19,9 @@
 #include <drm/msm_drm.h>
 
 #include "dp_panel.h"
+#ifdef CONFIG_LGE_DISPLAY_COMMON
+#include "../lge/dp/lge_dp_def.h"
+#endif
 
 struct dp_display {
 	struct drm_device *drm_dev;
@@ -52,6 +55,9 @@ struct dp_display {
 	int (*config_hdr)(struct dp_display *dp_display,
 				struct drm_msm_ext_hdr_metadata *hdr_meta);
 	void (*post_init)(struct dp_display *dp_display);
+#ifdef CONFIG_LGE_DISPLAY_COMMON
+	struct lge_dp_display lge_dp;
+#endif
 	int (*get_display_type)(struct dp_display *dp_display,
 			const char **display_type);
 	bool (*vsc_sdp_supported)(struct dp_display *dp_display);

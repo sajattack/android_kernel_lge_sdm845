@@ -568,6 +568,7 @@ struct msm_drm_private {
 
 	/* crtcs pending async atomic updates: */
 	uint32_t pending_crtcs;
+	uint32_t pending_planes;
 	wait_queue_head_t pending_crtcs_event;
 
 	/* Registered address spaces.. currently this is fixed per # of
@@ -665,6 +666,7 @@ void __msm_fence_worker(struct work_struct *work);
 
 int msm_atomic_commit(struct drm_device *dev,
 		struct drm_atomic_state *state, bool nonblock);
+int msm_drm_notifier_call_chain(unsigned long val, void *v);
 
 void msm_gem_submit_free(struct msm_gem_submit *submit);
 void msm_gem_unmap_vma(struct msm_gem_address_space *aspace,
