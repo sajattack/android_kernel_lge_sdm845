@@ -35,9 +35,9 @@ snd-soc-msm-stub-objs := msm_stub.o
 obj-$(CONFIG_SND_SOC_MSM_STUB)  += snd-soc-msm-stub.o
 
 ifeq  ($(CONFIG_SND_SOC_TFA9878), y)
-	obj-$(CONFIG_SND_SOC_TFA9878)   += tfa9878/
+	obj-$(CONFIG_SND_SOC_TFA9878)   += tfa98xx/
 else
-	obj-$(CONFIG_SND_SOC_TFA9872)   += tfa9872/
+	obj-$(CONFIG_SND_SOC_TFA9872)   += tfa98xx/
 endif
 
 wcd-core-objs                  := wcd9xxx-rst.o wcd9xxx-core-init.o \
