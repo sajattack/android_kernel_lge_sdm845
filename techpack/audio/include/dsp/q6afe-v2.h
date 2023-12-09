@@ -367,8 +367,8 @@ struct afe_tfa_dsp_read_msg_t {
 	//char *buf, int msg_type, int num_msgs);
 //typedef int (*dsp_read_message_t)(int devidx, int length, char *buf);
 
-int afe_tfadsp_read(void * dev, int buf_size, unsigned char *buf);
-int afe_tfadsp_write(void * dev, int buf_size, const char *buf);
+int afe_tfadsp_read(int dev, int buf_size, char *buf);
+int afe_tfadsp_write(int dev, int buf_size, const char *buf);
 #endif
 
 int afe_open(u16 port_id, union afe_port_config *afe_config, int rate);

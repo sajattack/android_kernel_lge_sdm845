@@ -17,6 +17,7 @@
 #include <linux/uaccess.h>
 #include <linux/atomic.h>
 #include <linux/wait.h>
+#include <linux/extcon.h>
 #include <sound/asound.h>
 #include <asoc/msm-dts-srs-tm-config.h>
 #include <dsp/apr_audio-v2.h>
@@ -42,7 +43,7 @@ struct mutex ram_lock;
 struct delayed_work ram_standby_work;
 
 static int ram_status;
-//void tfa98xx_extcon_set_state( int ram_state);
+void tfa98xx_extcon_set_state( int ram_state);
 #endif
 #if defined(CONFIG_LVACFQ_V10)
 #include "lvacfq_v10.h"
@@ -1330,16 +1331,16 @@ int adm_get_multi_ch_map(char *channel_map, int path)
 #ifndef CONFIG_SND_SOC_TFA9878	// Temp
 static void adm_ram_status_work(struct work_struct *work)
 {
-    mutex_lock(&ram_lock);
+    //mutex_lock(&ram_lock);
     pr_info("%s : enter ram status = %d\n", __func__, ram_status);
 
-    /*if (ram_status == 0) {*/
-		/*tfa98xx_extcon_set_state(RAM_INIT);*/
-    /*} else {*/
-		/*tfa98xx_extcon_set_state(RAM_ACTIVE);*/
-    /*}*/
+    //if (ram_status == 0) {
+        //extcon_set_state_sync(edev, EXTCON_MECHANICAL, RAM_INIT);
+    //} else {
+        //extcon_set_state_sync(edev, EXTCON_MECHANICAL, RAM_ACTIVE);
+    //}
 
-    mutex_unlock(&ram_lock);
+    //mutex_unlock(&ram_lock);
     pr_info("%s : exit\n", __func__);
 }
 #endif
