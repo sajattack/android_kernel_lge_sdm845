@@ -356,6 +356,10 @@ enum touch_device_type touch_get_device_type(void)
 #endif
 
 
+#if defined(CONFIG_LGE_TOUCH_LGSIC_SW49410)
+    ret = TYPE_SW49410;
+#endif
+
 #if defined(CONFIG_LGE_PANEL_MAKER_ID_SUPPORT)
 	ret = lge_get_panel_maker_id();
 #endif

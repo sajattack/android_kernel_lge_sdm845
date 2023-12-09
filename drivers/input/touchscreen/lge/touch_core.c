@@ -28,6 +28,7 @@
 #include <linux/ktime.h>
 #include <linux/device.h>
 #include <linux/pm_wakeup.h>
+#include <linux/lge_panel_notify.h>
 
 /*
  *  Include to touch core Header File
@@ -926,7 +927,7 @@ static int touch_init_notify(struct touch_core_data *ts)
 	}
 
 	ts->display_notif.notifier_call = display_notifier_callback;
-	//ret = lge_panel_notifier_register_client(&ts->display_notif);
+	ret = lge_panel_notifier_register_client(&ts->display_notif);
 
 	if (ret < 0) {
 		TOUCH_E("failed to regiseter lge_panel_notify callback\n");
