@@ -179,7 +179,7 @@ int msm_comm_vote_bus(struct msm_vidc_core *core)
 	int rc = 0, vote_data_count = 0, i = 0;
 	struct hfi_device *hdev;
 	struct msm_vidc_inst *inst = NULL;
-	struct vidc_bus_vote_data *vote_data = NULL;
+	struct vidc_bus_vote_data vote_data[MAX_SUPPORTED_INSTANCES] __aligned(8);
 	bool is_turbo = false;
 
 	if (!core || !core->device) {
@@ -193,15 +193,8 @@ int msm_comm_vote_bus(struct msm_vidc_core *core)
 	list_for_each_entry(inst, &core->instances, list)
 		++vote_data_count;
 
-	vote_data = kcalloc(vote_data_count, sizeof(*vote_data),
-			GFP_TEMPORARY);
+	memset(vote_data, 0, sizeof(struct vidc_bus_vote_data));
 	vote_data_count = 0;
-	if (!vote_data) {
-		dprintk(VIDC_ERR, "%s: failed to allocate memory\n", __func__);
-		mutex_unlock(&core->lock);
-		rc = -ENOMEM;
-		return rc;
-	}
 
 	list_for_each_entry(inst, &core->instances, list) {
 		int codec = 0;
@@ -313,7 +306,6 @@ int msm_comm_vote_bus(struct msm_vidc_core *core)
 		rc = call_hfi_op(hdev, vote_bus, hdev->hfi_device_data,
 			vote_data, vote_data_count);
 
-	kfree(vote_data);
 	return rc;
 }
 
@@ -1180,7 +1172,7 @@ static int msm_vidc_move_core_to_power_save_mode(struct msm_vidc_core *core,
 	list_for_each_entry(inst, &core->instances, list) {
 		if (inst->clk_data.core_id == core_id &&
 			inst->session_type == MSM_VIDC_ENCODER)
-			msm_vidc_power_save_mode_enable(inst, true);
+			msm_vidc_power_save_mode_enable(inst, false);
 	}
 	mutex_unlock(&core->lock);
 
@@ -1332,7 +1324,7 @@ int msm_vidc_decide_core_and_power_mode(struct msm_vidc_inst *inst)
 				core1_lp_load <= max_freq) {
 			if (inst->clk_data.work_mode == VIDC_WORK_MODE_2) {
 				inst->clk_data.core_id = VIDC_CORE_ID_3;
-				msm_vidc_power_save_mode_enable(inst, true);
+				msm_vidc_power_save_mode_enable(inst, false);
 				goto decision_done;
 			}
 		}
@@ -1350,7 +1342,7 @@ int msm_vidc_decide_core_and_power_mode(struct msm_vidc_inst *inst)
 		dprintk(VIDC_DBG,
 			"Selected by moving current to LP : Core ID = %d\n",
 				inst->clk_data.core_id);
-		msm_vidc_power_save_mode_enable(inst, true);
+		msm_vidc_power_save_mode_enable(inst, false);
 
 	} else if (current_inst_lp_load + min_lp_load < max_freq) {
 		/* Move all instances to LP mode and return */
