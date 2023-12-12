@@ -40,10 +40,10 @@
 #include <asm/uaccess.h>
 #include <linux/async.h>
 #include <asm/atomic.h>
-#include "tspdrv.h"
 #if defined(CONFIG_MACH_SDM845_JUDYPN)
 #include <soc/qcom/lge/board_lge.h>
 #endif /* CONFIG_MACH_SDM845_JUDYPN */
+#include <uapi/linux/tspdrv.h>
 
 static int g_nTimerPeriodMs = 5; /* 5ms timer by default. This variable could be used by the SPI.*/
 
