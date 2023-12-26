@@ -35,7 +35,6 @@ TFA98XX_FLAGS           := -DUSE_TFA9872
 # cc flags
 #ccflags-y               := -DDEBUG
 ccflags-y               += -I$(TFA_SRC_DIR)/inc
-ccflags-y               += -Werror
 ifdef TFA_DEBUG
 ccflags-y               += -DTFA_DEBUG
 endif

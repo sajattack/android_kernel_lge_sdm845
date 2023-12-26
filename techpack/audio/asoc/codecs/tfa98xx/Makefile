@@ -34,7 +34,6 @@ endif
 #EXTRA_CFLAGS += -DTFA98XX_GIT_VERSIONS=\"$(GIT_VERSION)\"
 
 EXTRA_CFLAGS += -I$(src)/inc
-EXTRA_CFLAGS += -Werror
 
 obj-$(CONFIG_SND_SOC_TFA98XX) := snd-soc-tfa98xx.o
 
