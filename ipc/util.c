@@ -64,6 +64,25 @@
 
 #include "util.h"
 
+
+static inline void *kvmalloc(size_t size, gfp_t flags)
+{
+	gfp_t kmalloc_flags = flags;
+	void *ret;
+
+	if ((flags & GFP_KERNEL) != GFP_KERNEL)
+		return kmalloc(size, flags);
+
+	if (size > PAGE_SIZE)
+		kmalloc_flags |= __GFP_NOWARN | __GFP_NORETRY;
+
+	ret = kmalloc(size, flags);
+	if (ret || size < PAGE_SIZE)
+		return ret;
+
+	return vmalloc(size);
+}
+
 struct ipc_proc_iface {
 	const char *path;
 	const char *header;
@@ -871,4 +890,5 @@ static const struct file_operations sysvipc_proc_fops = {
 	.llseek  = seq_lseek,
 	.release = sysvipc_proc_release,
 };
+
 #endif /* CONFIG_PROC_FS */
