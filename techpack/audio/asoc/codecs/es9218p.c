@@ -64,13 +64,12 @@ static int  es9218p_sabre_lpb2hifitwo(void);
 static int  es9218p_sabre_hifione2lpb(void);
 static int  es9218p_sabre_hifitwo2lpb(void);
 
-static int  es9218_set_avc_volume(struct i2c_client *client, int vol);
 static int  es9218p_sabre_amp_start(struct i2c_client *client, int headset);
 static int  es9218p_sabre_amp_stop(struct i2c_client *client, int headset);
 static int  es9218p_standby2lpb(void);
 static int  es9218p_lpb2standby(void);
-static int  es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mode);
-static int  es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode);
+static int es9218p_set_volume_rate(unsigned int sample_rate, unsigned int ess_mode);
+static int es9218p_set_bit_width(unsigned int bit_width, unsigned int ess_mode);
 static void es9218p_initialize_registers(unsigned int ess_mode);
 
 #ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
@@ -336,23 +335,12 @@ static int g_right_volume = 0;
 static int g_sabre_cf_num = 8; // default = 8
 static int g_dop_flag = 0;
 
-#ifdef ES9218P_SYSFS
-static int forced_headset_type = -1;
-static int forced_avc_volume = -1;
-#endif
-
 static int g_auto_mute_flag = 0;
 #ifdef ES9218P_DEBUG
 static int g_debug_delay = 500; // ESS pop-click debugging step time delay
 #endif
 static u8  normal_harmonic_comp_left[4] = {0x78, 0x00, 0x9a, 0xfc};
 static u8  normal_harmonic_comp_right[4] = {0x1e, 0x00, 0x12, 0xfd};
-#ifdef CONFIG_MACH_SDM845_JUDY
-static u8 advance_harmonic_comp_left[4] = {0xfe, 0x01, 0x32, 0x00};
-static u8 advance_harmonic_comp_right[4] = {0x9a, 0x01, 0x64, 0x00};
-static u8 aux_harmonic_comp_left[4] = {0x1b, 0x01, 0x0c, 0xfe};
-static u8 aux_harmonic_comp_right[4] = {0xd2, 0x00, 0x34, 0xfe};
-#endif
 #ifdef CONFIG_MACH_SM8150_ALPHA
 static u8  advance_harmonic_comp_left[4] = {0x58, 0x02, 0x3c, 0x00};
 static u8  advance_harmonic_comp_right[4] = {0x21, 0x02, 0x64, 0x00};
@@ -380,6 +368,11 @@ static u8  advance_harmonic_comp_left[4] = {0xa0, 0x02, 0x30, 0x00};
 static u8  advance_harmonic_comp_right[4] = {0x28, 0x02, 0x30, 0x00};
 static u8  aux_harmonic_comp_left[4] = {0x7a, 0x01, 0xe0, 0xfd};
 static u8  aux_harmonic_comp_right[4] = {0x05, 0x01, 0x1f, 0xfe};
+#else
+static u8  advance_harmonic_comp_left[4] = {0x30, 0x02, 0x3c, 0x00};
+static u8  advance_harmonic_comp_right[4] = {0xd6, 0x01, 0x3c, 0x00};
+static u8  aux_harmonic_comp_left[4] = {0x72, 0x01, 0x84, 0xfe};
+static u8  aux_harmonic_comp_right[4] = {0x3b, 0x01, 0x98, 0xfe};
 #endif
 
 enum {
@@ -614,73 +607,6 @@ static ssize_t es9218_registers_store(struct device *dev,
 static DEVICE_ATTR(registers, S_IWUSR | S_IRUGO,
         es9218_registers_show, es9218_registers_store);
 
-static ssize_t set_forced_headset_type(struct device *dev,
-                   struct device_attribute *attr,
-                   const char *buf, size_t count)
-{
-    int input_val; //0, 1, 2
-    sscanf(buf, "%d", &input_val);
-    es9218p_sabre_hifi2lpb();
-    g_volume = 0;
-
-    g_headset_type = input_val + 1;
-    forced_headset_type = input_val + 1;
-
-    es9218p_sabre_bypass2hifi();
-
-    return count;
-}
-static ssize_t get_forced_headset_type(struct device *dev,
-                   struct device_attribute *attr,
-                   char *buf)
-{
-    return sprintf(buf, "%i\n", g_headset_type);
-}
-static DEVICE_ATTR(headset_type, S_IWUSR|S_IRUGO, get_forced_headset_type, set_forced_headset_type);
-
-static ssize_t set_forced_avc_volume(struct device *dev,
-                   struct device_attribute *attr,
-                   const char *buf, size_t count)
-{
-    int input_vol;
-    sscanf(buf, "%d", &input_vol);
-
-    if (input_vol >= sizeof(avc_vol_tbl)/sizeof(avc_vol_tbl[0])) {
-        pr_err("%s() : Invalid vol = %d return \n", __func__, input_vol);
-        return 0;
-    }
-
-    g_avc_volume = input_vol;
-    forced_avc_volume = input_vol;
-
-    es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);
-
-    return count;
-}
-
-static ssize_t get_forced_avc_volume(struct device *dev,
-                   struct device_attribute *attr,
-                   char *buf)
-{
-    return sprintf(buf, "%i\n", g_avc_volume);
-}
-static DEVICE_ATTR(avc_volume, S_IWUSR|S_IRUGO, get_forced_avc_volume, set_forced_avc_volume);
-
-static struct attribute *es9218_attrs[] = {
-#ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
-	&dev_attr_fade_mute_count.attr,
-	&dev_attr_fade_mute_term.attr,
-#endif
-    &dev_attr_registers.attr,
-	&dev_attr_headset_type.attr,
-    &dev_attr_avc_volume.attr,
-    NULL
-};
-
-static const struct attribute_group es9218_attr_group = {
-    .attrs = es9218_attrs,
-};
-
 #endif /* ES9218P_SYSFS*/
 
 #ifdef ES9218P_NCO
@@ -689,11 +615,14 @@ static const struct attribute_group es9218_attr_group = {
  \param[in]	iFSR	: Smpling freq. of audio stream such as 44100 or 48000.
  \param[in]	iMCLK  	: It is Xin/n value. Xin will be 50MHz and 'n' can be '1/2/4/8'.
  \param[in]	iMODE  	: Set NCO enable/disable
+
  \return	int
  \retval	0	Success
  \retval	-1	Failure
+
  \b Note:   Register 34-37 : Programmable NCO(0x22 - 025)
             We can calculate "nco_num = iFSR*(2^32)/iMCLK".
+
 ***********************************************************************************/
 static int es9218p_sabre_set_nco_num(int iFSR, int iMCLK, int iMODE)
 {
@@ -1071,6 +1000,80 @@ static int es9218p_sabre_amp_stop(struct i2c_client *client, int headset)
     return ret;
 }
 
+#ifdef ES9218P_SYSFS
+static int forced_headset_type = -1;
+
+static ssize_t set_forced_headset_type(struct device *dev,
+                   struct device_attribute *attr,
+                   const char *buf, size_t count)
+{
+    int input_val; //0, 1, 2
+    sscanf(buf, "%d", &input_val);
+    
+    es9218p_sabre_hifi2lpb();
+    g_volume = 0;
+    
+    g_headset_type = input_val + 1;
+    forced_headset_type = input_val + 1;
+
+    es9218p_sabre_bypass2hifi();
+
+    return count;
+}
+static ssize_t get_forced_headset_type(struct device *dev,
+                   struct device_attribute *attr,
+                   char *buf)
+{
+    return sprintf(buf, "%i\n", g_headset_type);
+}
+static DEVICE_ATTR(headset_type, S_IWUSR|S_IRUGO, get_forced_headset_type, set_forced_headset_type);
+
+static int forced_avc_volume = -1;
+
+static ssize_t set_forced_avc_volume(struct device *dev,
+                   struct device_attribute *attr,
+                   const char *buf, size_t count)
+{
+    int input_vol;
+    sscanf(buf, "%d", &input_vol);
+
+    if (input_vol >= sizeof(avc_vol_tbl)/sizeof(avc_vol_tbl[0])) {
+        pr_err("%s() : Invalid vol = %d return \n", __func__, input_vol);
+        return 0;
+    }
+
+    g_avc_volume = input_vol;
+    forced_avc_volume = input_vol;
+
+    es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);
+
+    return count;
+}
+
+static ssize_t get_forced_avc_volume(struct device *dev,
+                   struct device_attribute *attr,
+                   char *buf)
+{
+    return sprintf(buf, "%i\n", g_avc_volume);
+}
+static DEVICE_ATTR(avc_volume, S_IWUSR|S_IRUGO, get_forced_avc_volume, set_forced_avc_volume);
+
+static struct attribute *es9218_attrs[] = {
+#ifdef CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER
+	&dev_attr_fade_mute_count.attr,
+	&dev_attr_fade_mute_term.attr,
+#endif
+    &dev_attr_registers.attr,
+    &dev_attr_headset_type.attr,
+    &dev_attr_avc_volume.attr,
+    NULL
+};
+
+static const struct attribute_group es9218_attr_group = {
+    .attrs = es9218_attrs,
+};
+
+#endif
 
 /*
  *  Program stage1 and stage2 filter coefficients
@@ -1658,10 +1661,10 @@ static int es9218p_sabre_bypass2hifi(void)
     }
 
 #ifdef ES9218P_SYSFS
-    if(forced_headset_type != -1 && forced_headset_type != g_headset_type)
+    if(forced_headset_type != -1 && forced_headset_type != g_headset_type) {
         g_headset_type = forced_headset_type;
+    }
 #endif
-
     es9218_set_thd(g_es9218_priv->i2c_client, g_headset_type);
 #if 0 /* CONFIG_SND_SOC_LGE_ESS_DIGITAL_FILTER*/
     es9218_sabre_cfg_custom_filter(&es9218_sabre_custom_ft[g_sabre_cf_num]);
@@ -1674,10 +1677,10 @@ static int es9218p_sabre_bypass2hifi(void)
     es9218_master_trim(g_es9218_priv->i2c_client, g_volume);                        // set master trim level
 
 #ifdef ES9218P_SYSFS
-    if(forced_avc_volume != -1 && forced_avc_volume != g_avc_volume)
+    if(forced_avc_volume != -1 && forced_avc_volume != g_avc_volume) {
         g_avc_volume = forced_avc_volume;
+    }
 #endif
-
     es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);                 // set analog volume control, must happen before amp start
     es9218p_sabre_amp_start(g_es9218_priv->i2c_client, g_headset_type);             // move to HiFi mode
 
@@ -2199,11 +2202,12 @@ static int es9218_headset_type_put(struct snd_kcontrol *kcontrol,
     value = (int)ucontrol->value.integer.value[0];
 
     if(value != 0) {
-#ifdef ES9218P_SYSFS
-        if(forced_headset_type != -1 && forced_headset_type != g_headset_type)
+
+    #ifdef ES9218P_SYSFS
+        if(forced_headset_type != -1 && forced_headset_type != g_headset_type) {
             g_headset_type = forced_headset_type;
-        else
-#endif
+        } else
+    #endif
         g_headset_type = value;
         pr_info("%s(): type = %d, state = %s\n ", __func__, value, power_state[es9218_power_state]);
     } else {
@@ -2470,8 +2474,9 @@ static int es9218_avc_volume_put(struct snd_kcontrol *kcontrol,
     }
 
 #ifdef ES9218P_SYSFS
-    if(forced_avc_volume != -1 && forced_avc_volume != g_avc_volume)
+    if(forced_avc_volume != -1 && forced_avc_volume != g_avc_volume) {
         g_avc_volume = forced_avc_volume;
+    }
 #endif
     es9218_set_avc_volume(g_es9218_priv->i2c_client, g_avc_volume);
     return ret;
