@@ -1988,8 +1988,6 @@ fail_putback:
 		mmu_notifier_invalidate_range_end(mm, mmun_start, mmun_end);
 
 		/* Reverse changes made by migrate_page_copy() */
-		if (TestClearPageWorkingset(new_page))
-			ClearPageWorkingset(page);
 		if (TestClearPageActive(new_page))
 			SetPageActive(page);
 		if (TestClearPageUnevictable(new_page))

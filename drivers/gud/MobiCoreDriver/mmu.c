@@ -524,22 +524,12 @@ struct tee_mmu *tee_mmu_create(struct mm_struct *mm,
 
 			/* Buffer was allocated in user space */
 			down_read(&mm->mmap_sem);
-#ifdef CONFIG_CMA_PINPAGE_MIGRATION
-			gup_ret = get_user_pages_foll_cma(NULL, mm, (uintptr_t)reader,
-					pages_nr, 1, 0, pages,
-					NULL);
-			if ((gup_ret == -EFAULT) && !write) {
-				gup_ret = get_user_pages_foll_cma(NULL, mm, (uintptr_t)reader,
-						pages_nr, 0, 0, pages,
-						NULL);
-#else
 			gup_ret = gup_local_repeat(mm, (uintptr_t)reader,
 						   pages_nr, 1, pages);
 			if ((gup_ret == -EFAULT) && !write) {
 				gup_ret = gup_local_repeat(mm,
 							   (uintptr_t)reader,
 							   pages_nr, 0, pages);
-#endif
 			}
 			up_read(&mm->mmap_sem);
 			if (gup_ret < 0) {
