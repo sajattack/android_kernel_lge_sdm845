@@ -213,6 +213,9 @@ static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
 static inline void disable_cpufreq(void) { }
 #endif
 
+extern void scale_freq_capacity(const cpumask_t *cpus, unsigned long cur_freq,
+                    unsigned long max_freq);
+
 #ifdef CONFIG_CPU_FREQ_STAT
 void cpufreq_stats_create_table(struct cpufreq_policy *policy);
 void cpufreq_stats_free_table(struct cpufreq_policy *policy);
