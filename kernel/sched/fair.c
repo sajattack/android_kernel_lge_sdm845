@@ -9592,7 +9592,6 @@ void update_group_capacity(struct sched_domain *sd, int cpu)
 		for_each_cpu(cpu, sched_group_cpus(sdg)) {
 			unsigned long cpu_cap = capacity_of(cpu);
 
-			if (cpumask_test_cpu(cpu, cpu_isolated_mask))
 			capacity += cpu_cap;
 			min_capacity = min(cpu_cap, min_capacity);
 			max_capacity = max(cpu_cap, max_capacity);
@@ -9606,16 +9605,9 @@ void update_group_capacity(struct sched_domain *sd, int cpu)
 		group = child->groups;
 		do {
 			struct sched_group_capacity *sgc = group->sgc;
-			cpumask_t *cpus = sched_group_cpus(group);
-
-			if (!cpu_isolated(cpumask_first(cpus))) {
-				capacity += sgc->capacity;
-				min_capacity = min(sgc->min_capacity,
-							min_capacity);
-				max_capacity = max(sgc->max_capacity,
-							max_capacity);
-			}
-			group = group->next;
+			capacity += sgc->capacity;
+			min_capacity = min(sgc->min_capacity, min_capacity);
+			max_capacity = max(sgc->max_capacity, max_capacity);
 		} while (group != child->groups);
 	}
 
@@ -10637,7 +10629,9 @@ static int group_balance_cpu_not_isolated(struct sched_group *sg)
 	cpumask_t cpus;
 
 	cpumask_and(&cpus, sched_group_cpus(sg), sched_group_mask(sg));
+#ifdef CONFIG_SCHED_WALT
 	cpumask_andnot(&cpus, &cpus, cpu_isolated_mask);
+#endif
 	return cpumask_first(&cpus);
 }
 
@@ -11030,6 +11024,12 @@ update_next_balance(struct sched_domain *sd, unsigned long *next_balance)
  * least 1 task to be running on each physical CPU where possible, and
  * avoids physical / logical imbalances.
  */
+/*
+ * active_load_balance_cpu_stop is run by the CPU stopper. It pushes
+ * running tasks off the busiest CPU onto idle CPUs. It requires at
+ * least 1 task to be running on each physical CPU where possible, and
+ * avoids physical / logical imbalances.
+ */
 static int active_load_balance_cpu_stop(void *data)
 {
 	struct rq *busiest_rq = data;
@@ -11038,25 +11038,33 @@ static int active_load_balance_cpu_stop(void *data)
 	struct rq *target_rq = cpu_rq(target_cpu);
 	struct sched_domain *sd = NULL;
 	struct task_struct *p = NULL;
-	struct task_struct *push_task;
+	struct rq_flags rf;
+#ifdef CONFIG_SCHED_WALT
+	struct task_struct *push_task = NULL;
 	int push_task_detached = 0;
 	struct lb_env env = {
-		.sd			= sd,
-		.dst_cpu		= target_cpu,
-		.dst_rq			= target_rq,
-		.src_cpu		= busiest_rq->cpu,
-		.src_rq			= busiest_rq,
-		.idle			= CPU_IDLE,
-		.busiest_nr_running	= 0,
-		.busiest_grp_capacity	= 0,
-		.flags			= 0,
-		.loop			= 0,
+		.sd                     = sd,
+		.dst_cpu                = target_cpu,
+		.dst_rq                 = target_rq,
+		.src_cpu                = busiest_rq->cpu,
+		.src_rq                 = busiest_rq,
+		.idle                   = CPU_IDLE,
+		.flags                  = 0,
+		.loop                   = 0,
 	};
+#endif
 	bool moved = false;
 
-	raw_spin_lock_irq(&busiest_rq->lock);
+	rq_lock_irq(busiest_rq, &rf);
+	/*
+	 * Between queueing the stop-work and running it is a hole in which
+	 * CPUs can become inactive. We should not move tasks from or to
+	 * inactive CPUs.
+	 */
+	if (!cpu_active(busiest_cpu) || !cpu_active(target_cpu))
+		goto out_unlock;
 
-	/* make sure the requested cpu hasn't gone down in the meantime */
+	/* Make sure the requested CPU hasn't gone down in the meantime: */
 	if (unlikely(busiest_cpu != smp_processor_id() ||
 		     !busiest_rq->active_balance))
 		goto out_unlock;
@@ -11068,10 +11076,11 @@ static int active_load_balance_cpu_stop(void *data)
 	/*
 	 * This condition is "impossible", if it occurs
 	 * we need to fix it. Originally reported by
-	 * Bjorn Helgaas on a 128-cpu setup.
+	 * Bjorn Helgaas on a 128-CPU setup.
 	 */
 	BUG_ON(busiest_rq == target_rq);
 
+#ifdef CONFIG_SCHED_WALT
 	push_task = busiest_rq->push_task;
 	target_cpu = busiest_rq->push_cpu;
 	if (push_task) {
@@ -11086,6 +11095,7 @@ static int active_load_balance_cpu_stop(void *data)
 		}
 		goto out_unlock;
 	}
+#endif
 
 	/* Search for an sd spanning us and the target CPU. */
 	rcu_read_lock();
@@ -11122,21 +11132,23 @@ static int active_load_balance_cpu_stop(void *data)
 	rcu_read_unlock();
 out_unlock:
 	busiest_rq->active_balance = 0;
+#ifdef CONFIG_SCHED_WALT
 	push_task = busiest_rq->push_task;
 	target_cpu = busiest_rq->push_cpu;
+	clear_reserved(target_cpu);
 
 	if (push_task)
 		busiest_rq->push_task = NULL;
+#endif
 
-	raw_spin_unlock(&busiest_rq->lock);
-
+	rq_unlock(busiest_rq, &rf);
+#ifdef CONFIG_SCHED_WALT
 	if (push_task) {
 		if (push_task_detached)
 			attach_one_task(target_rq, push_task);
 		put_task_struct(push_task);
-		clear_reserved(target_cpu);
 	}
-
+#endif
 	if (p)
 		attach_one_task(target_rq, p);
 
@@ -11144,6 +11156,7 @@ out_unlock:
 
 	return 0;
 }
+
 
 static DEFINE_SPINLOCK(balancing);
 
@@ -11536,9 +11549,11 @@ static bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle)
 	flags = atomic_fetch_andnot(NOHZ_KICK_MASK, nohz_flags(this_cpu));
 
 	SCHED_WARN_ON((flags & NOHZ_KICK_MASK) == NOHZ_BALANCE_KICK);
-
+#ifdef CONFIG_SCHED_WALT
 	cpumask_andnot(&cpus, nohz.idle_cpus_mask, cpu_isolated_mask);
-
+#else
+	cpumask_copy(&cpus, nohz.idle_cpus_mask);
+#endif
 	/*
 	 * We assume there will be no idle load after this update and clear
 	 * the has_blocked flag. If a cpu enters idle in the mean time, it will
@@ -12560,7 +12575,9 @@ kick_active_balance(struct rq *rq, struct task_struct *p, int new_cpu)
 		rq->active_balance = 1;
 		rq->push_cpu = new_cpu;
 		get_task_struct(p);
+#ifdef CONFIG_SCHED_WALT
 		rq->push_task = p;
+#endif
 		rc = 1;
 	}
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
